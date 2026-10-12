@@ -1,0 +1,225 @@
+/* Звіти XLSX, адміністрування (користувачі, ролі, журнал, дані, налаштування), керування публічним сайтом. */
+(function () {
+  'use strict';
+  var A = window.A, D = window.D, N = A.N, esc = A.esc, S = A.S, dd = A.dd;
+  A.NAV.push({group: 'Публічний сайт', items: [{href: '/public-admin', label: 'Керування сайтом', match: '/public-admin', show: function () { return A.can('manage_public'); }}]});
+  A.NAV.push({group: 'Адміністрування', items: [
+    {href: '/admin/users', label: 'Користувачі', match: '/admin/users', show: function () { return A.can('manage_users'); }},
+    {href: '/admin/roles', label: 'Ролі та права', match: '/admin/roles', show: function () { return A.can('manage_roles'); }},
+    {href: '/admin/audit', label: 'Журнал дій', match: '/admin/audit', show: function () { return A.can('view_audit'); }},
+    {href: '/admin/data', label: 'Дані, імпорт, дзеркало', match: '/admin/data', show: function () { return A.can('system'); }},
+    {href: '/admin/settings', label: 'Налаштування', match: '/admin/settings', show: function () { return A.can('system'); }}]});
+  function xl(name, sheets) { A.busy(true); return window.XLSX.table(sheets).then(function (b) { A.busy(false); window.XLSX.download(b, name + '_' + A.today() + '.xlsx'); A.audit('Вивантажено XLSX: ' + name, 'export', null, {rows: sheets.reduce(function (s, x) { return s + x.rows.length; }, 0)}); }, function (e) { A.busy(false); throw e; }); }
+  A.xl = xl;
+
+  // ================================================================ звіти
+  var ASSET_COLS = [['№ у Реєстрі', 16, function (a) { return a.asset_no; }], ['Найменування', 60, function (a) { return a.name; }], ['Категорія', 18, function (a) { return N.CAT[a.category]; }],
+    [A.KIND_LABEL, 18, function (a) { return N.KIND[a.report_kind]; }], ['Вид', 22, function (a) { return a.vid; }], ['Складність', 14, function (a) { return N.CX[a.complexity]; }], ['Стан активу', 36, function (a) { return a.proposal; }], ['Зона', 12, function (a) { return a.zone; }],
+    ['Область', 16, function (a) { return a.region; }], ['Адреса', 40, function (a) { return A.isFin(a) ? '' : A.fullAddress(a) || a.address_raw; }], ['Кадастровий №', 22, function (a) { return a.cadastral; }],
+    ['МТУ', 20, function (a) { return N.MTU[a.mtu_code]; }], ['Виконавець МТУ', 24, function (a) { return a.mtu_manager; }], ['Відділ ДМА', 24, function (a) { return N.DMA[a.dept_code]; }], ['Менеджер ДМА', 24, function (a) { return a.dma_manager; }],
+    ['Правовий стан', 18, function (a) { return N.LS[a.legal_status]; }], ['Джерело правового стану', 20, function (a) { return D.LEGAL_BASIS[a.legal_basis]; }], ['Розбіжність', 40, function (a) { return a.legal_note; }], ['Останнє рішення', 12, function (a) { return A.dt(a.last_decision_date); }],
+    ['Можливість управління', 14, function (a) { return N.POS[a.mgmt_possible]; }], ['Причина неможливості', 30, function (a) { return N.REASON[a.impossible_reason]; }], ['Привабливість', 18, function (a) { return N.INV[a.invest_grade]; }], ['Спосіб передачі', 26, function (a) { return N.WAY[a.transfer_way]; }],
+    ['Оцінка, грн', 16, function (a) { return a.val_amount || null; }], ['Дата оцінки', 12, function (a) { return A.dt(a.val_date); }], ['Зберігач', 26, function (a) { return a.custodian_name; }], ['Управитель', 26, function (a) { return a.manager_name; }],
+    ['Пул', 14, function (a) { var p = a.pool_id && A.get('pools', a.pool_id); return p ? p.code : ''; }], ['Prozorro', 22, function (a) { return a.prozorro_id; }], ['Фото', 8, function (a) { return a.photo_count || 0; }], ['Документів', 10, function (a) { return a.doc_count || 0; }], ['Оновлено', 18, function (a) { return a.updated_at; }]];
+  A.CLICK['xlsx-assets'] = function (t) {
+    if (!A.can('export')) return A.deny();
+    var f = A.json(t.dataset.q, {}), list = A.filterAssets(f);
+    return xl('Реєстр_активів', [{name: 'Активи', title: 'Реєстр активів АРМА · вибірка за фільтром · ' + A.dt(A.today()) + ' · записів: ' + list.length, cols: ASSET_COLS.map(function (c) { return {h: c[0], w: c[1]}; }),
+      rows: list.map(function (a) { return ASSET_COLS.map(function (c) { var v = c[2](a); return v === '—' ? null : v; }); })}]);
+  };
+  function pivot(list, rowKey, rowNames, colKey, colNames) {
+    var rows = {}, cols = {}; list.forEach(function (a) { var r = rowKey(a) || '', c = colKey(a) || ''; rows[r] = rows[r] || {}; rows[r][c] = (rows[r][c] || 0) + 1; cols[c] = 1; });
+    var ck = Object.keys(cols).sort(); return {cols: [{h: 'Показник', w: 40}].concat(ck.map(function (c) { return {h: (colNames && colNames[c]) || c || 'Не визначено', w: 16}; })).concat([{h: 'Усього', w: 12}]),
+      rows: Object.keys(rows).sort().map(function (r) { var tot = 0, vals = ck.map(function (c) { tot += rows[r][c] || 0; return rows[r][c] || 0; }); return [(rowNames && rowNames[r]) || r || 'Не визначено'].concat(vals).concat([tot]); })};
+  }
+  var REPORTS = [
+    ['assets', 'Реєстр активів (усі видимі)', 'Повний перелік із закріпленням, правовим станом, оцінкою, зберіганням', function () { A.CLICK['xlsx-assets']({dataset: {q: '{}'}}); }],
+    ['order', 'Звіт за наказом про ефективне управління', 'Види майна × можливість управління, причини, привабливість, способи передачі', function () {
+      var all = A.T('assets').filter(A.inScope), p1 = pivot(all, function (a) { return a.report_kind; }, N.KIND, function (a) { return a.mgmt_possible; }, N.POS), p2 = pivot(all, function (a) { return a.report_kind; }, N.KIND, function (a) { return a.impossible_reason; }, N.REASON);
+      var p3 = pivot(all, function (a) { return a.report_kind; }, N.KIND, function (a) { return a.invest_grade; }, N.INV), p4 = pivot(all, function (a) { return a.report_kind; }, N.KIND, function (a) { return a.transfer_way; }, N.WAY);
+      return xl('Звіт_за_наказом', [{name: 'Можливість', title: 'Можливість ефективного управління за видами майна', cols: p1.cols, rows: p1.rows}, {name: 'Причини', title: 'Причини неможливості управління', cols: p2.cols, rows: p2.rows},
+        {name: 'Привабливість', title: 'Інвестиційна привабливість', cols: p3.cols, rows: p3.rows}, {name: 'Спосіб передачі', title: 'Спосіб передачі', cols: p4.cols, rows: p4.rows}]); }],
+    ['units', 'Звірка з інвентаризацією: МТУ, відділи, зони', 'Кількість активів за МТУ, відділами ДМА, зонами і станами — для звірки з файлом інвентаризації', function () {
+      var all = A.T('assets').filter(A.inScope), p1 = pivot(all, function (a) { return a.mtu_code; }, N.MTU, function (a) { return a.zone; }), p2 = pivot(all, function (a) { return a.dept_code; }, N.DMA, function (a) { return a.zone; }), p3 = pivot(all, function (a) { return a.proposal; }, null, function (a) { return a.zone; });
+      return xl('Звірка_МТУ_відділи_зони', [{name: 'МТУ', title: 'Активи за МТУ і зонами', cols: p1.cols, rows: p1.rows}, {name: 'Відділи ДМА', title: 'Активи за відділами ДМА і зонами', cols: p2.cols, rows: p2.rows}, {name: 'Стан активу', title: 'Стан активу (кол. 42) і зона', cols: p3.cols, rows: p3.rows}]); }],
+    ['legal', 'Правовий стан і розбіжності джерел', 'Активи з розбіжністю між хронологією рішень та інвентаризацією; ручні коригування', function () {
+      var l = A.T('assets').filter(function (a) { return A.inScope(a) && (a.legal_note || a.legal_basis === 'manual'); });
+      return xl('Правовий_стан', [{name: 'Розбіжності', title: 'Правовий стан: розбіжності та ручні коригування', cols: [{h: '№ у Реєстрі', w: 16}, {h: 'Найменування', w: 50}, {h: 'Стан', w: 16}, {h: 'За рішеннями', w: 16}, {h: 'За інвентаризацією', w: 16}, {h: 'Джерело', w: 20}, {h: 'Примітка', w: 70}, {h: 'Останнє рішення', w: 14}],
+        rows: l.map(function (a) { return [a.asset_no, a.name, N.LS[a.legal_status], N.LS[a.legal_dec] || '', N.LS[a.legal_src], D.LEGAL_BASIS[a.legal_basis], a.legal_note || a.legal_manual_note, A.dt(a.last_decision_date)]; })}]); }],
+    ['valuations', 'Оцінки', 'Реєстр оцінок і закупівель послуг з оцінки', function () {
+      var l = A.T('valuations');
+      return xl('Оцінки', [{name: 'Оцінки', title: 'Оцінки активів і пулів', cols: ['Об’єкт', 'Номери активів', 'Лот', 'Назва лоту', 'Закупівля', 'Дата закупівлі', 'Переможець', 'Вартість договору', 'Вартість оцінки, грн', 'Дата оцінки', '№ звіту', 'Оцінювач', 'Статус', 'Актуальна', 'Строк'].map(function (h) { return {h: h, w: 18}; }),
+        rows: l.map(function (v) { var tg = A.valTarget(v); return [tg.code, v.asset_nos, v.lot_no, v.lot_name, v.procurement_id, A.dt(v.procurement_date), v.winner, v.contract_cost, v.value_uah, A.dt(v.value_date), v.report_no, v.appraiser, v.status, v.is_current ? 'так' : 'ні', {valid: 'чинна', expired: 'понад 6 міс.', none: ''}[A.valState(v.value_date)]]; })}]); }],
+    ['decisions', 'Судові рішення', 'Ухвали і рішення з пов’язаними активами', function () {
+      return xl('Судові_рішення', [{name: 'Рішення', title: 'Судові рішення', cols: ['Дата', 'Вид рішення', 'Наслідок', 'Суд', '№ справи', '№ провадження', 'Набрало сили', 'Виконання', 'Активи'].map(function (h) { return {h: h, w: 20}; }),
+        rows: A.T('decisions').map(function (d) { return [A.dt(d.decision_date), N.DEC[d.dtype], N.EFF[d.effect || N.DECEFF[d.dtype]], d.court, d.case_no, d.proceeding_no, A.dt(d.effective_date), d.execution, (A.indexes.assetsByDec[d.id] || []).map(function (l) { var a = A.get('assets', l.asset_id); return a ? a.asset_no : ''; }).filter(Boolean).join(', ')]; })}]); }],
+    ['plans', 'Плани дій (CRM)', 'Діючі плани, поточні кроки, строки і прострочення', function () {
+      var t = A.today(), rows = [];
+      A.T('plans').forEach(function (p) { var tg = A.targetOf(p.target_type, p.target_id); (A.indexes.stepsByPlan[p.id] || []).forEach(function (s) { rows.push([tg ? tg.code : p.target_type + ' ' + p.target_id, N.PROC[p.process], p.status, s.ord, s.name, s.responsible, D.STEP_STATUS ? A.map(D.STEP_STATUS)[s.status] : s.status, A.dt(s.due_date), A.dt(s.done_at), (s.status === 'active' || s.status === 'review') && s.due_date && s.due_date < t ? 'так' : '', p.manager, N.DMA_SHORT[p.dept_code]]); }); });
+      return xl('Плани_дій', [{name: 'Кроки', title: 'Плани дій: кроки', cols: ['Об’єкт', 'Процес', 'Стан плану', '№', 'Крок', 'Відповідальний', 'Стан кроку', 'Строк', 'Виконано', 'Прострочено', 'Менеджер', 'Відділ'].map(function (h) { return {h: h, w: 18}; }), rows: rows}]); }],
+    ['pools', 'Пули активів', 'Пули з кількістю активів, оцінкою і способом передачі', function () {
+      return xl('Пули', [{name: 'Пули', title: 'Пули активів', cols: ['Код', 'Назва', 'Активів', 'Відділ ДМА', 'Менеджер', 'Спосіб передачі', 'Оцінка, грн', 'Дата оцінки', 'Prozorro', 'Опубліковано'].map(function (h) { return {h: h, w: 20}; }),
+        rows: A.T('pools').map(function (p) { return [p.code, p.name, (A.indexes.poolAssets[p.id] || []).length, N.DMA[p.dept_code], p.dma_manager, N.WAY[p.transfer_way], p.val_amount, A.dt(p.val_date), p.prozorro_id, p.publish ? 'так' : '']; })}]); }],
+    ['companies', 'Товариства (корпоративні права)', 'Картки товариств: стан, КВЕД, частка, кількість активів', function () {
+      return xl('Товариства', [{name: 'Товариства', title: 'Корпоративні права: товариства', cols: ['ЄДРПОУ', 'Найменування', 'Стан', 'Дата реєстрації', 'Форма', 'Статутний капітал', 'КВЕД', 'Назва КВЕД', 'Частка АРМА, %', 'Адреса', 'Керівник', 'Відділ ДМА', 'Активів'].map(function (h) { return {h: h, w: 18}; }),
+        rows: A.T('companies').map(function (c) { return [c.edrpou, c.name, c.status, A.dt(c.reg_date), c.legal_form, c.capital, c.kved, c.kved_name, c.share_total, c.address, c.director, N.DMA[c.dept_code], A.T('assets').filter(function (a) { return a.company_code === c.edrpou; }).length]; })}]); }, function () { return A.can('view_all') || A.can('edit_corp_extra'); }],
+    ['fin', 'Кошти, метали, ОВДП, криптоактиви', 'Зведення розміщення та криптоактивів у гривневому еквіваленті', function () {
+      var m = A.T('assets').filter(function (a) { return a.category === 'money' && A.inScope(a); }), c = A.cryptoRows(A.T('assets').filter(function (a) { return a.category === 'crypto' && A.inScope(a); }));
+      return xl('Фінансові_активи', [{name: 'Кошти', title: 'Кошти, метали, цінні папери', cols: ['№ у Реєстрі', 'Найменування', 'Вид', 'Сума', 'Валюта', 'Розміщення', 'Банк / ISIN', 'Ставка, %', 'Погашення', 'Гривневий еквівалент'].map(function (h) { return {h: h, w: 18}; }),
+        rows: m.map(function (a) { var d = a.details || {}; return [a.asset_no, a.name, d.money_kind, A.parseNum(d.amount), d.currency, d.placement, d.placement_bank || d.bank, A.parseNum(d.rate), d.maturity, Math.round(A.moneyUAH(a) * 100) / 100]; })},
+        {name: 'Криптоактиви', title: 'Криптоактиви', cols: ['№ у Реєстрі', 'Токен', 'Мережа', 'Кількість', 'Вартість, грн', 'Вартість, $', 'Зберігання', 'Правовий стан'].map(function (h) { return {h: h, w: 16}; }),
+          rows: c.map(function (x) { return [x.a.asset_no, x.d.token, x.d.network, x.units, Math.round(x.uah), Math.round(x.usd), x.d.storage, N.LS[x.a.legal_status]]; })}]); }, function () { return A.catAllowed('money'); }],
+    ['ident', 'Ідентифікація у структурі «БАЗОВА»', 'Файл у структурі таблиці «БАЗОВА Ідентифікація» з формулами і даними Реєстру', function () { return A.CLICK['ident-xlsx']({dataset: {q: '{}'}}); }, function () { return A.can('ident_view') || A.can('ident_edit'); }]
+  ];
+  A.on(/^\/reports$/, function () {
+    if (!A.can('export')) return A.deny();
+    var h = '<div class="tiles">' + REPORTS.filter(function (r) { return !r[4] || r[4](); }).map(function (r) { return '<a class="tile" href="#" data-click="report" data-k="' + r[0] + '" title="' + esc(r[2]) + '"><b style="font-size:15px">' + esc(r[1]) + '</b><span>' + esc(r[2]) + '</span></a>'; }).join('') + '</div>' +
+      '<p class="mini">Файли формуються у вашому браузері з даних, які ви бачите відповідно до прав. Вибірку за будь-яким фільтром можна вивантажити кнопкою «XLSX за фільтром» у реєстрі активів.</p>';
+    A.render(A.shell('Звіти XLSX', 'Вивантаження для звітності та звірки', '', h));
+  });
+  A.CLICK.report = function (t) { var r = REPORTS.filter(function (x) { return x[0] === t.dataset.k; })[0]; return r && r[3](); };
+
+  // ================================================================ користувачі
+  A.on(/^\/admin\/users$/, function (f) {
+    if (!A.can('manage_users')) return A.deny();
+    var w = (f.q || '').toLowerCase(), list = A.T('users').filter(function (u) { return (!w || (u.login + ' ' + u.full_name + ' ' + (u.position || '')).toLowerCase().indexOf(w) >= 0) && (!f.role || u.role_code === f.role); })
+      .sort(function (a, b) { return (a.full_name || '').localeCompare(b.full_name || ''); }), roles = A.T('roles').map(function (r) { return [r.code, r.name]; });
+    var h = '<form class="filters" data-act="filter" data-base="/admin/users"><input name="q" value="' + esc(f.q || '') + '" placeholder="Логін, ПІБ, посада">' + A.sel('role', roles, f.role, 'Усі ролі') + '<button class="btn">Знайти</button><button type="button" class="btn plain" data-click="reset" data-base="/admin/users">Скинути</button></form>' +
+      '<div class="wrap-tbl"><table><thead><tr><th>Логін</th><th>ПІБ / посада</th><th>Роль</th><th>Підрозділ</th><th>Контакти</th><th>Стан</th><th></th></tr></thead><tbody>' + list.map(function (u) {
+        return '<tr><td class="mono">' + esc(u.login) + '</td><td>' + esc(u.full_name || '') + '<span class="sub">' + esc(u.position || '') + '</span></td><td class="mini">' + esc((A.T('roles').filter(function (r) { return r.code === u.role_code; })[0] || {}).name || u.role_code) + '</td>' +
+          '<td class="mini">' + esc(N.MTU[u.mtu_code] || N.DMA[u.dept_code] || '—') + '</td><td class="mini">' + esc([u.phone, u.email].filter(Boolean).join(', ')) + '</td><td>' + (u.is_active === 0 ? '<span class="tag t-lost">заблоковано</span>' : '<span class="tag t-ok">активний</span>') + (u.last_login ? '<span class="sub">вхід ' + esc(u.last_login) + '</span>' : '') + '</td>' +
+          '<td class="nowrap"><a class="btn sm" href="#/admin/user/' + u.id + '">Змінити</a> ' + (A.mode === 'server' ? '<button class="btn sm plain" data-click="user-act" data-a="temp_password" data-id="' + u.id + '" data-confirm="Видати новий тимчасовий пароль (діє 72 год)?">Пароль</button> ' : '') +
+          '<button class="btn sm plain" data-click="user-act" data-a="' + (u.is_active === 0 ? 'unblock' : 'block') + '" data-id="' + u.id + '">' + (u.is_active === 0 ? 'Розблокувати' : 'Блокувати') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
+    A.render(A.shell('Користувачі', 'Облікові записи працівників і їхні ролі', '<a class="btn gold" href="#/admin/user/new">+ Користувач</a>', h), A.keep);
+  });
+  A.on(/^\/admin\/user\/(new|\d+)$/, function (id) {
+    if (!A.can('manage_users')) return A.deny(); var u = id === 'new' ? {is_active: 1} : A.get('users', +id); if (!u) return A.notFound();
+    var F = A.field, S2 = A.fsel, h = '<form data-act="user-save" data-id="' + (u.id || '') + '"><fieldset><legend>Обліковий запис</legend><div class="form-grid">' + (u.id ? '<div class="field"><label>Логін</label><input value="' + esc(u.login) + '" disabled></div>' : F('Логін', 'login', '', 'text', 1, 'латиниця, цифри, крапка, дефіс')) +
+      F('ПІБ', 'full_name', u.full_name, 'text', 1) + F('Посада', 'position', u.position) + S2('Роль', 'role_code', A.T('roles').map(function (r) { return [r.code, r.name]; }), u.role_code, 1) + S2('МТУ (для виконавців МТУ)', 'mtu_code', A.OPT.MTU, u.mtu_code) +
+      S2('Відділ ДМА', 'dept_code', D.DMA, u.dept_code) + F('Телефон', 'phone', u.phone) + F('E-mail', 'email', u.email, 'email') + '</div></fieldset>' +
+      '<div class="form-actions"><a class="btn plain" href="#/admin/users">Скасувати</a><button class="btn gold">' + (u.id ? 'Зберегти' : 'Створити і видати пароль') + '</button></div></form>';
+    A.render(A.shell(u.id ? 'Користувач ' + u.login : 'Новий користувач', '', '', h));
+  });
+  A.ACT['user-save'] = function (form, d) {
+    var id = +form.dataset.id || null, rec = {}; ['full_name', 'position', 'role_code', 'mtu_code', 'dept_code', 'phone', 'email'].forEach(function (k) { rec[k] = (d[k] || '').trim() || null; });
+    if (!rec.full_name || !rec.role_code) throw new Error('Вкажіть ПІБ і роль');
+    if (!id && A.mode === 'server') return A.http('POST', '/api/users/create', Object.assign({login: d.login}, rec)).then(function (r) {
+      A.modal('Користувача створено', '<p>Логін: <b class="mono">' + esc(d.login) + '</b></p><p>Тимчасовий пароль (діє 72 години, при першому вході потрібно змінити):</p><p style="font-size:20px" class="mono"><b>' + esc(r.password) + '</b></p><p class="mini">Передайте пароль користувачу захищеним каналом. Повторно його не буде показано.</p><p><button class="btn gold" data-close>Готово</button></p>');
+      return A.http('GET', '/api/table/users').then(function (p) { S.t.users = A.unpack(p); A.reindex(['users']); A.go('#/admin/users'); }); });
+    var tx = A.tx();
+    if (id) tx.put('users', Object.assign({id: id}, rec)); else { if (!/^[a-z0-9._-]{3,40}$/.test((d.login || '').toLowerCase())) throw new Error('Логін: 3–40 символів, латиниця'); tx.put('users', Object.assign({id: A.tmpId(), login: d.login.toLowerCase(), is_active: 1}, rec)); }
+    tx.log(id ? 'Змінено користувача' : 'Створено користувача', 'user', id);
+    return tx.commit().then(function () { A.toast('Збережено'); A.go('#/admin/users'); });
+  };
+  A.CLICK['user-act'] = function (t) {
+    var id = +t.dataset.id, a = t.dataset.a;
+    if (A.mode === 'server') return A.http('POST', '/api/users/' + a, {id: id}).then(function (r) {
+      if (r.password) A.modal('Тимчасовий пароль', '<p style="font-size:20px" class="mono"><b>' + esc(r.password) + '</b></p><p class="mini">Діє 72 години; при вході потрібно змінити.</p><p><button class="btn gold" data-close>Готово</button></p>');
+      return A.http('GET', '/api/table/users').then(function (p) { S.t.users = A.unpack(p); A.reindex(['users']); A.route(true); }); });
+    if (a === 'temp_password') return A.toast('У дзеркалі паролі не використовуються', 'info');
+    var tx = A.tx(); tx.put('users', {id: id, is_active: a === 'block' ? 0 : 1}); return tx.commit().then(function () { A.route(true); });
+  };
+
+  // ================================================================ ролі
+  A.on(/^\/admin\/roles$/, function () {
+    if (!A.can('manage_roles')) return A.deny(); var roles = A.T('roles');
+    var h = '<form data-act="roles-save"><div class="wrap-tbl"><table><thead><tr><th>Право</th>' + roles.map(function (r) { return '<th class="mini" style="writing-mode:vertical-rl;transform:rotate(180deg);max-height:180px" title="' + esc(r.name) + '">' + esc(r.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      D.PERMISSIONS.map(function (p) { return '<tr><td title="' + esc(p[0]) + '">' + esc(p[1]) + '</td>' + roles.map(function (r) { return '<td style="text-align:center"><input type="checkbox" name="p_' + r.id + '" value="' + p[0] + '"' + ((r.perms || []).indexOf(p[0]) >= 0 ? ' checked' : '') + (r.code === 'admin' ? ' disabled' : '') + ' style="width:auto"></td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table></div><div class="form-actions"><a class="btn plain" href="#/">Скасувати</a><button class="btn gold">Зберегти права</button></div></form><p class="mini">Роль адміністратора має всі права. Зміни діють після повторного входу користувача.</p>';
+    A.render(A.shell('Ролі та права', 'Матриця прав доступу', '', h));
+  });
+  A.ACT['roles-save'] = function (f, d) { var tx = A.tx(); A.T('roles').forEach(function (r) { if (r.code === 'admin') return; var p = A.arr(d['p_' + r.id]); if (p.slice().sort().join() !== (r.perms || []).slice().sort().join()) tx.put('roles', {id: r.id, perms: p}); });
+    if (!tx.size()) return A.toast('Змін немає', 'info'); tx.log('Змінено права ролей', 'role'); return tx.commit().then(function () { A.toast('Права збережено'); A.route(true); }); };
+
+  // ================================================================ журнал
+  A.on(/^\/admin\/audit$/, function (f) {
+    if (!A.can('view_audit')) return A.deny();
+    var form = '<form class="filters" data-act="filter" data-base="/admin/audit"><input name="q" value="' + esc(f.q || '') + '" placeholder="Дія або деталі"><input name="login" value="' + esc(f.login || '') + '" placeholder="Логін"><input type="date" name="date_from" value="' + esc(f.date_from || '') + '"><input type="date" name="date_to" value="' + esc(f.date_to || '') + '"><button class="btn">Знайти</button><button type="button" class="btn plain" data-click="reset" data-base="/admin/audit">Скинути</button></form>';
+    function show(rows) {
+      var h = form + '<div class="wrap-tbl"><table><thead><tr><th>Час</th><th>Користувач</th><th>Дія</th><th>Об’єкт</th><th>Деталі</th></tr></thead><tbody>' + rows.slice(0, 1000).map(function (r) {
+        var link = r.entity === 'asset' && r.entity_id ? '<a href="#/asset/' + esc(r.entity_id) + '">актив ' + esc(r.entity_id) + '</a>' : esc((r.entity || '') + (r.entity_id ? ' ' + r.entity_id : ''));
+        return '<tr><td class="mini nowrap">' + esc(r.ts) + '</td><td class="mono mini">' + esc(r.login || '') + '</td><td>' + esc(r.action) + '</td><td class="mini">' + link + '</td><td class="mini" style="max-width:420px;overflow-wrap:anywhere">' + esc((r.details || '').slice(0, 300)) + '</td></tr>'; }).join('') + (rows.length ? '' : '<tr><td colspan="5"><div class="empty">Записів немає.</div></td></tr>') + '</tbody></table></div>';
+      A.render(A.shell('Журнал дій користувачів', 'Входи, перегляди, зміни, вивантаження', A.can('export') ? '<a class="btn" href="#" data-click="audit-xlsx">XLSX</a>' : '', h));
+      A._auditRows = rows;
+    }
+    if (A.mode === 'server') return A.http('GET', '/api/audit' + A.qs({q: f.q, login: f.login, date_from: f.date_from, date_to: f.date_to, limit: 5000})).then(function (r) { show(r.rows); });
+    show(A.T('audit').filter(function (r) { return (!f.login || r.login === f.login) && (!f.q || ((r.action || '') + ' ' + (r.details || '')).toLowerCase().indexOf(f.q.toLowerCase()) >= 0) && (!f.date_from || r.ts >= f.date_from) && (!f.date_to || r.ts <= f.date_to + ' 23:59:59'); }));
+  });
+  A.CLICK['audit-xlsx'] = function () { return xl('Журнал_дій', [{name: 'Журнал', cols: [{h: 'Час', w: 20}, {h: 'Користувач', w: 16}, {h: 'Дія', w: 40}, {h: 'Об’єкт', w: 14}, {h: 'ID', w: 10}, {h: 'Деталі', w: 80}], rows: (A._auditRows || []).map(function (r) { return [r.ts, r.login, r.action, r.entity, r.entity_id, r.details]; })}]); };
+
+  // ================================================================ дані: імпорт, резервні копії, дзеркало GitHub
+  var IMPORT_KINDS = [['inventory', 'Інвентаризація активів (основний файл)'], ['cadastral', 'Кадастрові номери'], ['uhvaly', 'Інвентаризація ухвал'], ['work', 'Таблиця «Активи в роботі» (пули, етапи)'], ['valuations', 'Таблиця оцінок'], ['korprava', 'Аналітика корпоративних прав'], ['ident', 'Ідентифікація (таблиця «БАЗОВА Ідентифікація»)']];
+  A.on(/^\/admin\/data$/, function () {
+    if (!A.can('system')) return A.deny();
+    if (A.mode === 'static') {
+      var ch = A.changesSummary();
+      var h = '<div class="panel"><h3>Дзеркало для перевірки</h3><dl class="kv">' + dd('Дані станом на', S.built || '—') + dd('Версія даних', S.fv) + dd('Активів', A.num(A.T('assets').length)) + dd('Локальні зміни', 'активів: ' + ch.assets + (ch.tables.length ? ' · таблиці: ' + ch.tables.join(', ') : '')) + '</dl>' +
+        '<p class="mini">Дзеркало — точна копія інтерфейсу робочої системи. Дані — знімок бази сервера без персональних даних. Зміни, які ви робите тут, зберігаються лише у вашому браузері. Щоб оновити дані дзеркала, адміністратор сервера формує новий архів («Дані → Сформувати дзеркало для GitHub») і завантажує файли в репозиторій — див. інструкцію.</p>' +
+        '<p><button class="btn" data-click="mirror-export">Зберегти мої зміни у файл (JSON)</button> <button class="btn danger" data-click="mirror-reset" data-confirm="Скинути всі локальні зміни в цьому браузері?">Скинути локальні зміни</button></p></div>';
+      return A.render(A.shell('Дані дзеркала', '', '', h));
+    }
+    A.http('GET', '/api/admin/jobs').then(function (r) {
+      var h = '<div class="grid g4">' + Object.keys(r.stats).map(function (k) { return A.kpi({assets: 'Активи', decisions: 'Судові рішення', valuations: 'Оцінки', pools: 'Пули', file_links: 'Файли', users: 'Користувачі', audit: 'Журнал', ident_records: 'Ідентифікація'}[k] || k, A.num(r.stats[k]), ''); }).join('') + '</div>' +
+        '<div class="grid g2" style="margin-top:14px"><form class="panel" data-act="import"><h3>Імпорт / оновлення бази з XLSX</h3>' + A.fsel('Тип даних', 'kind', IMPORT_KINDS, 'inventory', 1) + '<div class="field"><label class="req">Файл .xlsx</label><input type="file" name="file" accept=".xlsx" required></div>' +
+        '<p class="mini">Повторний імпорт інвентаризації оновлює первинні дані; закріплення МТУ / відділу та стан активу, змінені користувачами, зберігаються. Перед імпортом автоматично створюється резервна копія.</p><button class="btn gold">Завантажити і запустити</button></form>' +
+        '<div class="panel"><h3>Резервні копії та дзеркало</h3><p><button class="btn" data-click="admin-backup">Створити резервну копію зараз</button></p><p class="mini">Остання копія: ' + esc((r.backups[0] || {}).name || '—') + ' · БД: ' + esc(r.db_kind) + '</p>' +
+        '<p><a class="btn gold" href="' + A.api + '/api/admin/export-github">Сформувати дзеркало для GitHub (ZIP)</a></p><p class="mini">Архів містить готовий сайт-дзеркало з актуальними даними без персональних відомостей. Розпакуйте і завантажте файли в репозиторій GitHub (замінивши попередні) — дзеркало оновиться за 1–2 хвилини.</p></div></div>' +
+        '<h2>Останні операції</h2><div class="wrap-tbl"><table><thead><tr><th>№</th><th>Тип</th><th>Стан</th><th>Повідомлення</th><th>Запустив</th><th>Початок</th><th>Завершення</th></tr></thead><tbody>' + r.jobs.map(function (j) {
+          return '<tr><td>' + j.id + '</td><td>' + esc((A.map(IMPORT_KINDS))[j.kind] || j.kind) + '</td><td>' + (j.status === 'done' ? '<span class="tag t-ok">готово</span>' : j.status === 'running' ? '<span class="tag t-lim">виконується</span>' : '<span class="tag t-lost">' + esc(j.status) + '</span>') + '</td><td class="mini" style="max-width:480px;white-space:pre-wrap">' + esc((j.message || '').slice(-1500)) + '</td><td class="mini">' + esc(j.created_by || '') + '</td><td class="mini">' + esc(j.created_at || '') + '</td><td class="mini">' + esc(j.finished_at || '') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+      A.render(A.shell('Дані, імпорт, дзеркало', 'Оновлення бази активів на сервері та формування дзеркала', '', h));
+      if (r.jobs.some(function (j) { return j.status === 'running'; })) setTimeout(function () { if (location.hash === '#/admin/data') A.route(true); }, 5000);
+    });
+  });
+  A.ACT.import = function (f, d) { var fd = new FormData(f); A.busy(true); return A.http('POST', '/api/admin/import', fd, true).then(function () { A.busy(false); A.toast('Імпорт запущено. Сторінка оновиться після завершення.'); A.route(true); }, function (e) { A.busy(false); throw e; }); };
+  A.CLICK['admin-backup'] = function () { return A.http('POST', '/api/admin/backup', {}).then(function (r) { A.toast('Резервну копію створено: ' + r.name); A.route(true); }); };
+  A.CLICK['mirror-export'] = function () { window.XLSX.download(new Blob([JSON.stringify(A.exportChanges())], {type: 'application/json'}), 'arma-mirror-changes-' + A.today() + '.json'); };
+  A.CLICK['mirror-reset'] = function () { return A.idbClear().then(function () { location.reload(); }); };
+
+  // ================================================================ налаштування
+  A.on(/^\/admin\/settings$/, function () {
+    if (!A.can('system')) return A.deny(); var s = S.settings, F = A.field;
+    var h = '<form data-act="settings"><fieldset><legend>Карта</legend><div class="form-grid">' + F('Сервер плиток карти', 'map_tiles', s.map_tiles || '', 'text', 0, 'Порожньо — OpenStreetMap (https://tile.openstreetmap.org/{z}/{x}/{y}.png). Для закритої мережі вкажіть власний сервер плиток.', 'wide') + '</div></fieldset>' +
+      '<fieldset><legend>Курси для перерахунку</legend><div class="form-grid">' + F('Курси валют (JSON)', 'fx_rates', s.fx_rates || '{"USD":41.3,"EUR":45.2,"GBP":52.4,"CHF":47}', 'text', 0, 'гривень за 1 одиницю валюти', 'wide') + F('Ціни банківських металів, грн за 1 г (JSON)', 'metal_prices', s.metal_prices || '{"XAU":4300,"XAG":50}', 'text', 0, '', 'wide') + '</div></fieldset>' +
+      '<div class="form-actions"><button class="btn gold">Зберегти</button></div></form>';
+    A.render(A.shell('Налаштування', '', '', h));
+  });
+  A.ACT.settings = function (f, d) { var tx = A.tx(); ['map_tiles', 'fx_rates', 'metal_prices'].forEach(function (k) { var v = (d[k] || '').trim(); if (/rates|prices/.test(k) && v) { try { JSON.parse(v); } catch (e) { throw new Error('Поле ' + k + ': некоректний JSON'); } } if ((S.settings[k] || '') !== v) tx.put('settings', {key: k, value: v}); });
+    if (!tx.size()) return A.toast('Змін немає', 'info'); return tx.commit().then(function () { A.toast('Збережено'); }); };
+
+  // ================================================================ публічний сайт: керування
+  var REQ_ST = {new: 'Нова', approved: 'Погоджено', rejected: 'Відхилено'};
+  A.on(/^\/public-admin$/, function (f) {
+    if (!A.can('manage_public')) return A.deny();
+    var s = S.settings, pubA = A.T('assets').filter(function (a) { return a.publish; }), pubP = A.T('pools').filter(function (p) { return p.publish; }), cand = A.T('assets').filter(function (a) { return a.public_candidate && !a.publish && A.FIN.indexOf(a.category) < 0; }).length;
+    var reqs = A.T('pub_requests').slice().sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); }), users = A.T('pub_users'), stats = A.T('pub_stats').slice().sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
+    var item = function (t, id) { if (t === 'pool') { var p = A.get('pools', id); return p ? '<a href="#/pool/' + p.id + '">' + esc(p.code + ' · ' + (p.public_title || p.name || '')) + '</a>' : 'пул ' + id; } var a = A.get('assets', id); return a ? '<a href="#/asset/' + a.id + '">' + esc(a.asset_no + ' · ' + (a.public_title || a.name || '').slice(0, 70)) + '</a>' : 'актив ' + id; };
+    var tab = f.tab || 'overview', T = function (k, l) { return '<a href="' + A.link('/public-admin', {tab: k}) + '" class="' + (tab === k ? 'on' : '') + '">' + l + '</a>'; };
+    var h = '<div class="grid g5">' + A.kpi('Опубліковано активів', A.num(pubA.length), 'окремими лотами', A.link('/assets', {publish: 1})) + A.kpi('Опубліковано пулів', A.num(pubP.length), 'зведеними картками', A.link('/pools', {publish: 1})) + A.kpi('Можна опублікувати', A.num(cand), 'публічні за критерієм', A.link('/assets', {public: 1})) +
+      A.kpi('Відвідувачів зареєстровано', A.num(users.length), 'кабінет на сайті') + A.kpi('Запити на документи', A.num(reqs.filter(function (r) { return r.status === 'new'; }).length), 'очікують рішення', A.link('/public-admin', {tab: 'requests'}), 'overdue') + '</div>' +
+      '<div class="chips-filter" style="margin:14px 0">' + T('overview', 'Огляд і статистика') + T('requests', 'Запити на документи') + T('users', 'Відвідувачі') + T('settings', 'Налаштування сайту') + '</div>';
+    if (tab === 'overview') {
+      var views = stats.reduce(function (x, r) { return x + (r.views || 0); }, 0), likes = stats.reduce(function (x, r) { return x + (r.likes || 0); }, 0), favs = stats.reduce(function (x, r) { return x + (r.favorites || 0); }, 0);
+      h += '<div class="grid g3">' + A.kpi('Переглядів', A.num(views), 'карток на сайті') + A.kpi('Вподобань', A.num(likes), '') + A.kpi('Додано в обране', A.num(favs), '') + '</div><h2>Найпопулярніші лоти</h2><div class="wrap-tbl"><table><thead><tr><th>Лот</th><th class="num">Переглядів</th><th class="num">Вподобань</th><th class="num">В обраному</th><th class="num">Запитів</th></tr></thead><tbody>' +
+        stats.slice(0, 50).map(function (r) { return '<tr><td>' + item(r.item_type, r.item_id) + '</td><td class="num">' + (r.views || 0) + '</td><td class="num">' + (r.likes || 0) + '</td><td class="num">' + (r.favorites || 0) + '</td><td class="num">' + (r.requests || 0) + '</td></tr>'; }).join('') + (stats.length ? '' : '<tr><td colspan="5"><div class="empty">Статистики ще немає.</div></td></tr>') + '</tbody></table></div>' +
+        '<p><a class="btn" href="' + (A.mode === 'server' ? A.api + '/public' : 'public.html') + '" target="_blank" rel="noopener">Відкрити публічний сайт →</a></p>';
+    }
+    if (tab === 'requests') h += '<div class="wrap-tbl"><table><thead><tr><th>Дата</th><th>Відвідувач</th><th>Лот</th><th>Повідомлення</th><th>Стан</th><th></th></tr></thead><tbody>' + reqs.map(function (r) { var u = A.get('pub_users', r.user_id) || {};
+        return '<tr><td class="mini nowrap">' + esc(r.created_at || '') + '</td><td class="mini">' + esc(u.name || '') + '<br>' + esc(u.email || '') + (u.org ? '<br>' + esc(u.org) : '') + '</td><td class="mini">' + item(r.item_type, r.item_id) + '</td><td class="mini" style="max-width:320px">' + esc(r.message || '') + '</td>' +
+          '<td>' + esc(REQ_ST[r.status] || r.status) + (r.decided_by ? '<span class="sub">' + esc(r.decided_by + ' · ' + (r.decided_at || '')) + '</span>' : '') + (r.admin_note ? '<span class="sub">' + esc(r.admin_note) + '</span>' : '') + '</td>' +
+          '<td class="nowrap">' + (r.status === 'new' ? '<button class="btn sm gold" data-click="req" data-v="approved" data-id="' + r.id + '">Погодити доступ</button> <button class="btn sm plain" data-click="req" data-v="rejected" data-id="' + r.id + '">Відхилити</button>' : '') + '</td></tr>'; }).join('') + (reqs.length ? '' : '<tr><td colspan="6"><div class="empty">Запитів немає.</div></td></tr>') + '</tbody></table></div><p class="mini">Після погодження відвідувач бачить у кабінеті документи лоту (акт огляду, техпаспорт, витяги, звіт про оцінку), позначені як доступні за запитом.</p>';
+    if (tab === 'users') h += '<div class="wrap-tbl"><table><thead><tr><th>E-mail</th><th>Ім’я</th><th>Організація</th><th>Телефон</th><th>Реєстрація</th><th>Стан</th><th></th></tr></thead><tbody>' + users.map(function (u) {
+        return '<tr><td class="mono mini">' + esc(u.email) + '</td><td>' + esc(u.name || '') + '</td><td class="mini">' + esc(u.org || '') + '</td><td class="mini">' + esc(u.phone || '') + '</td><td class="mini">' + esc(u.created_at || '') + '</td><td>' + (u.status === 'blocked' ? '<span class="tag t-lost">заблоковано</span>' : '<span class="tag t-ok">активний</span>') + '</td>' +
+          '<td><button class="btn sm plain" data-click="pubuser" data-id="' + u.id + '" data-v="' + (u.status === 'blocked' ? 'active' : 'blocked') + '">' + (u.status === 'blocked' ? 'Розблокувати' : 'Блокувати') + '</button></td></tr>'; }).join('') + (users.length ? '' : '<tr><td colspan="7"><div class="empty">Зареєстрованих відвідувачів немає.</div></td></tr>') + '</tbody></table></div>';
+    if (tab === 'settings') { var F = A.field;
+      h += '<form data-act="pub-settings"><fieldset><legend>Головна сторінка</legend><div class="form-grid">' + F('Заголовок', 'public_hero_title', s.public_hero_title || 'Активи АРМА: оренда, управління, продаж', 'text', 0, '', 'wide') + F('Підзаголовок', 'public_hero_sub', s.public_hero_sub || 'Нерухомість, земельні ділянки, транспорт і майнові комплекси, передані в управління Національному агентству з питань виявлення, розшуку та управління активами', 'textarea', 0, '', 'wide') + '</div></fieldset>' +
+        '<fieldset><legend>Загальні контакти (якщо в лоті не вказано)</legend><div class="form-grid">' + F('Підрозділ', 'public_contact_dept', s.public_contact_dept || 'Відділ з організації та проведення конкурсних відборів') + F('Телефон', 'public_contact_phone', s.public_contact_phone || '') + F('E-mail', 'public_contact_email', s.public_contact_email || '') +
+        F('Сторінка контактів', 'public_contacts_url', s.public_contacts_url || 'https://arma.gov.ua/contacts', 'url', 0, 'посилання для форми зворотного зв’язку', 'wide') + F('Обробка персональних даних', 'public_privacy_url', s.public_privacy_url || 'https://arma.gov.ua/page/obrobka-personalnih-danih-subektiv-dani-yakih-obroblyayutsya-v-arma', 'url', 0, '', 'wide') + '</div></fieldset>' +
+        '<fieldset><legend>Агреговані показники на сайті</legend><div class="form-grid">' + A.fsel('Показувати агреговані кошти / ОВДП / метали', 'public_show_money', [['1', 'Так'], ['0', 'Ні']], s.public_show_money === '0' ? '0' : '1', 0, '', '', '', null) + A.fsel('Показувати агреговані криптоактиви', 'public_show_crypto', [['1', 'Так'], ['0', 'Ні']], s.public_show_crypto === '0' ? '0' : '1', 0, '', '', '', null) + '</div></fieldset>' +
+        '<div class="form-actions"><button class="btn gold">Зберегти налаштування сайту</button></div></form>'; }
+    A.render(A.shell('Керування публічним сайтом', 'Публікація лотів, запити на документи, відвідувачі, статистика інтересу', '', h), A.keep);
+  });
+  A.CLICK.req = function (t) { var note = t.dataset.v === 'rejected' ? prompt('Причина відмови (бачить відвідувач):', '') : ''; if (note === null) return; var tx = A.tx(); tx.put('pub_requests', {id: +t.dataset.id, status: t.dataset.v, admin_note: note || null, decided_at: A.nowS(), decided_by: S.user && S.user.login}); tx.log('Рішення щодо запиту на документи: ' + t.dataset.v, 'pub_request', +t.dataset.id); return tx.commit().then(function () { A.route(true); }); };
+  A.CLICK.pubuser = function (t) { var tx = A.tx(); tx.put('pub_users', {id: +t.dataset.id, status: t.dataset.v}); return tx.commit().then(function () { A.route(true); }); };
+  A.ACT['pub-settings'] = function (f, d) { var tx = A.tx(); Object.keys(d).forEach(function (k) { if (k.indexOf('public_') === 0 && (S.settings[k] || '') !== d[k].trim()) tx.put('settings', {key: k, value: d[k].trim()}); });
+    if (!tx.size()) return A.toast('Змін немає', 'info'); tx.log('Змінено налаштування сайту', 'settings'); return tx.commit().then(function () { A.toast('Збережено'); }); };
+})();
