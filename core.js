@@ -7,6 +7,7 @@
   var A = window.A = {};
   var D = window.D;
   A.mode = window.ARMA_MODE || 'static';
+  A.APPVER = '2.1';      // версія формату локальних змін дзеркала; при зміні локальні зміни попередньої версії скидаються
   A.api = window.ARMA_API || '';
   A.csrf = window.ARMA_CSRF || '';
   var S = A.S = {t: {}, ix: {}, user: null, perms: [], settings: {}, last: 0, fv: '1'};
@@ -102,7 +103,7 @@
         else { CH.tables[t] = 1; idbPut('t:' + t, S.t[t]); }
       });
       dirty = {};
-      idbPut('meta', {tables: Object.keys(CH.tables), fv: S.fv, saved: A.nowS()});
+      idbPut('meta', {tables: Object.keys(CH.tables), fv: S.fv, app: A.APPVER, saved: A.nowS()});
     }, 250);
   }
   A.changesSummary = function () { return {assets: Object.keys(CH.assets).length, tables: Object.keys(CH.tables)}; };
@@ -156,7 +157,7 @@
       });
     }).then(function (meta) {
       S.t.audit = [];
-      if (!meta || meta.fv !== S.fv) {               // нові дані з сервера — локальні зміни попередньої версії скидаються
+      if (!meta || meta.fv !== S.fv || meta.app !== A.APPVER) {               // нові дані з сервера — локальні зміни попередньої версії скидаються
         if (meta) A.toast('Дзеркало оновлено новими даними з сервера (' + (S.built || '') + '). Попередні локальні зміни скинуто.', 'info');
         return A.idbClear();
       }
@@ -242,8 +243,12 @@
       var rec = Object.assign({}, o.rec), id = rec.id;
       if (o.op === 'delete') { id = idmap[o.t + ':' + id] || id; if (A.get(o.t, id)) cascade(o.t, id); return; }
       if (o.t === 'settings') { S.settings[rec.key] = rec.value; touched.settings = 1; return; }
+      if (o.t === 'rates') { var ex = A.T('rates').filter(function (r) { return r.token === rec.token; })[0]; delete rec.id; if (ex) Object.assign(ex, rec); else A.T('rates').push(rec); touched.rates = 1; return; }
       remap(o.t, rec, idmap);
-      if (o.t === 'assets') { rec.updated_at = A.nowS(); rec.updated_by = user; }
+      // зміна існуючого запису — це часткове оновлення: зливаємо з поточним записом (інакше поля, яких немає в зміні, зникають)
+      var prev = id !== undefined && id !== null && id > 0 ? A.get(o.t, id) : null;
+      if (prev) rec = Object.assign({}, prev, rec);
+      if (o.t === 'assets') { rec.updated_at = A.nowS(); rec.updated_by = user; delete rec._s; }
       if (id === undefined || id === null || id < 0) {
         var nid = nextId(o.t); if (id < 0) idmap[o.t + ':' + id] = nid; rec.id = nid;
         if (!rec.created_at) rec.created_at = A.nowS(); if (!rec.created_by) rec.created_by = user;
