@@ -343,7 +343,7 @@
         return '<tr><td>' + esc(b[0]) + '</td><td class="num">' + A.num(b[1]) + '</td><td class="num">' + (r ? A.num(r, 1) + ' %' : '—') + '</td><td class="num">' + (r ? A.num(b[1] * r / 100) : '—') + '</td></tr>'; }).join('') + (banks.length ? '' : '<tr><td colspan="4" class="mini">Розміщення на депозитах ще не внесено (поля «Розміщення», «Банк», «Ставка» в картці активу).</td></tr>') + '</tbody></table></div></div>';
     if (A.can('edit_money') || A.can('system')) {
       var r = A.json(S.settings.fx_rates, {USD: 41.3, EUR: 45.2, GBP: 52.4});
-      h += '<form class="panel" data-act="fx" style="margin-top:14px;display:flex;gap:8px;align-items:end;flex-wrap:wrap"><b style="width:100%">Курси для перерахунку в гривню (НБУ, вносить відділ)</b>' + ['USD', 'EUR', 'GBP', 'CHF'].map(function (c) { return A.field(c, 'fx_' + c, r[c], 'text'); }).join('') + '<button class="btn">Зберегти курси</button></form>';
+      h += '<form class="panel" data-act="fx" style="margin-top:14px;display:flex;gap:8px;align-items:end;flex-wrap:wrap"><b style="width:100%">Курси для перерахунку в гривню</b><span class="mini" style="width:100%">Оновлюються автоматично щогодини з офіційного курсу НБУ' + (S.settings.rates_nbu_at ? ' · останнє оновлення: ' + esc(S.settings.rates_nbu_at) : '') + '. Ручне введення — лише якщо сервер не має доступу до bank.gov.ua.</span>' + ['USD', 'EUR', 'GBP', 'CHF'].map(function (c) { return A.field(c, 'fx_' + c, r[c], 'text'); }).join('') + '<button class="btn">Зберегти курси</button></form>';
     }
     return h + '<p class="mini">Розділ не передається на скринінг МТУ, фото і адреса не застосовуються. На публічний сайт — лише узагальнені показники.</p>';
   };
@@ -367,13 +367,24 @@
       '<div class="panel"><h3>Спосіб зберігання</h3>' + A.chart('donut', A.series(A.grp(rows, function (x) { return x.d.storage || 'Холодні гаманці'; })), null, ['#35D6E8', '#8B7BF7', '#6E7F9E']) + '</div>' +
       '<div class="panel"><h3>Розподіл за мережами</h3>' + A.chart('barh', A.series(A.grp(rows, function (x) { return x.d.network || 'Не визначено'; })), 'cyan') + '</div>' +
       '<div class="panel"><h3>Статус активів</h3>' + A.chart('donut', A.series(A.grp(rows, st)), null, ['#F5C518', '#3DD68C', '#6E7F9E', '#F0524E']) + '</div>' +
-      '<div class="panel" style="grid-column:span 2"><h3>Курси <span>CoinGecko (вносяться відділом, якщо сервер не має доступу до агрегатора)</span></h3><table><tbody>' +
+      '<div class="panel" style="grid-column:span 2"><h3>Курси <span>CoinGecko, автоматично щогодини' + (S.settings.rates_crypto_at ? ' · оновлено ' + esc(S.settings.rates_crypto_at) : '') + '</span></h3>' + (A.can('edit_money') || A.can('system') ? '<p><button class="btn sm gold" data-click="rates-refresh">Оновити курси зараз</button> <span class="mini">ручне введення нижче — лише як резерв, якщо агрегатор недоступний</span></p>' : '') + '<table><tbody>' +
       A.T('rates').map(function (r) { return '<tr><td>' + esc(r.token) + '</td><td class="num">' + A.num(r.uah, 2) + ' ₴</td><td class="num">' + (r.usd ? '$ ' + A.num(r.usd, 4) : '—') + '</td><td class="mini">' + esc(r.fetched_at || '') + '</td></tr>'; }).join('') + '</tbody></table>' +
       (A.can('edit_money') || A.can('system') ? '<form data-act="rate" style="display:flex;gap:6px;margin-top:8px">' + A.sel('token', ['USDT', 'USDC', 'BTC', 'ETH', 'TRX', 'SOL'], 'USDT', null) + '<input name="uah" placeholder="курс, ₴" style="width:110px"><input name="usd" placeholder="курс, $" style="width:90px"><button class="btn">Зберегти курс</button></form>' : '') + '</div></div>' +
       '<h2>Записи</h2><div class="wrap-tbl"><table><thead><tr><th>№ у Реєстрі</th><th>Криптоактив</th><th class="num">Кількість</th><th class="num">Вартість</th><th>Зберігання</th><th>Лот Prozorro.Продажі</th>' + (A.can('view_internal') ? '<th>Гаманець (службово)</th>' : '') + '<th>Правовий стан</th></tr></thead><tbody>' +
       rows.map(function (x) { return '<tr><td><a class="id" href="#/asset/' + x.a.id + '">' + esc(x.a.asset_no) + '</a></td><td>' + esc(x.d.token || '—') + '<span class="sub">' + esc(x.d.network || '') + '</span></td><td class="num">' + A.num(x.units, 2) + '</td><td class="num"><b>' + (cur === 'USD' ? '$ ' + A.num(x.usd) : A.money(x.uah)) + '</b></td><td class="mini">ХОЛОДНІ ГАМАНЦІ' + (x.d.custodian ? '<br>' + esc(x.d.custodian) : '') + '</td><td class="mini mono">' + esc(x.d.prozorro_lot || '—') + '</td>' + (A.can('view_internal') ? '<td class="mini mono" style="word-break:break-all">' + esc(x.d.wallet || '—') + '</td>' : '') + '<td>' + A.legal(x.a.legal_status) + '</td></tr>'; }).join('') + '</tbody></table></div>';
     return h + '<p class="mini">Фото, скринінг МТУ і адреса для криптоактивів не застосовуються. На публічний сайт — лише узагальнена аналітика.</p>';
   };
-  A.ACT.rate = function (f, d) { var u = A.parseNum(d.uah); if (!u) return A.toast('Вкажіть курс у гривнях', 'err'); var r = A.indexes.rate[d.token], tx = A.tx();
-    tx.put('rates', {id: r ? r.id : A.tmpId(), token: d.token, uah: u, usd: A.parseNum(d.usd), fetched_at: A.nowS() + ' (вручну)'}); return tx.commit().then(function () { A.toast('Курс збережено'); A.route(true); }); };
+  A.ACT.rate = function (f, d) { var u = A.parseNum(d.uah); if (!u) return A.toast('Вкажіть курс у гривнях', 'err');
+    if (A.mode === 'server') return A.http('POST', '/api/rates/manual', {token: d.token, uah: u, usd: A.parseNum(d.usd)}).then(function () { A.toast('Курс збережено'); location.reload(); });
+    var r = A.indexes.rate[d.token], tx = A.tx(); tx.put('rates', {id: r ? r.id : A.tmpId(), token: d.token, uah: u, usd: A.parseNum(d.usd), fetched_at: A.nowS() + ' (вручну)'}); return tx.commit().then(function () { A.toast('Курс збережено'); A.route(true); }); };
+  // оновлення курсів: на сервері — НБУ і CoinGecko (так само працює щогодинна задача); у дзеркалі — запит з браузера до CoinGecko
+  var CG = {USDT: 'tether', USDC: 'usd-coin', BTC: 'bitcoin', ETH: 'ethereum', TRX: 'tron', SOL: 'solana', BNB: 'binancecoin'};
+  A.CLICK['rates-refresh'] = function () {
+    if (A.mode === 'server') { A.busy(true); return A.http('POST', '/api/rates/refresh', {}).then(function (r) { A.busy(false); (r.messages || []).forEach(function (m) { A.toast(m, /не вдалося/.test(m) ? 'err' : 'ok'); }); setTimeout(function () { location.reload(); }, 1800); }, function (e) { A.busy(false); throw e; }); }
+    var ids = Object.keys(CG).map(function (k) { return CG[k]; }).join(',');
+    return fetch('https://api.coingecko.com/api/v3/simple/price?ids=' + ids + '&vs_currencies=uah,usd').then(function (r) { if (!r.ok) throw new Error('CoinGecko: ' + r.status); return r.json(); }).then(function (j) {
+      var tx = A.tx(); Object.keys(CG).forEach(function (t) { var v = j[CG[t]]; if (!v || !v.uah) return; var r = A.indexes.rate[t]; tx.put('rates', {id: r ? r.id : A.tmpId(), token: t, uah: v.uah, usd: v.usd, fetched_at: A.nowS() + ' (CoinGecko)'}); });
+      tx.put('settings', {key: 'rates_crypto_at', value: A.nowS()}); return tx.commit().then(function () { A.toast('Курси оновлено з CoinGecko'); A.route(true); });
+    }).catch(function (e) { A.toast('Не вдалося отримати курси (' + e.message + '). Перевірте доступ до api.coingecko.com.', 'err'); });
+  };
 })();
