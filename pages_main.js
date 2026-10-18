@@ -7,8 +7,9 @@
   A.NAV.push({group: 'Аналітика', items: [{href: '/', label: 'Огляд портфеля'}]});
   A.NAV.push({group: 'Категорії активів', items: D.CATEGORIES.map(function (c) { return {href: '/c/' + c[0], label: c[1], match: '/c/' + c[0], show: function () { return A.catAllowed(c[0]); }}; })});
   A.NAV.push({group: 'Робота з активами', items: [
-    {href: '/assets', label: 'Реєстр активів', match: '/asset'}, {href: '/pools', label: 'Пули активів', match: '/pool'},
-    {href: '/plans', label: 'Плани дій (CRM)', match: '/plans'}, {href: '/decisions', label: 'Судові рішення', match: '/decision'},
+    {href: '/assets', label: 'Реєстр активів', match: '/asset'}, {href: '/pools', label: 'Пули і складні активи', match: '/pool'},
+    {href: '/plans', label: 'Плани дій (CRM)', match: '/plans'},
+    {href: '/approvals', label: 'Погодження', match: '/approvals', show: function () { return A.can('crm_confirm') || A.can('crm_edit'); }, badge: function () { return A.myApprovals ? A.myApprovals().length : 0; }}, {href: '/decisions', label: 'Судові рішення', match: '/decision'},
     {href: '/valuations', label: 'Оцінки', match: '/valuation'}, {href: '/companies', label: 'Товариства (корп. права)', match: '/compan', show: function () { return A.can('view_all') || A.can('edit_corp_extra'); }},
     {href: '/ident', label: 'Ідентифікація', match: '/ident', show: function () { return A.can('ident_view') || A.can('ident_edit'); }},
     {href: '/reports', label: 'Звіти XLSX', match: '/reports', show: function () { return A.can('export'); }}]});
@@ -50,7 +51,7 @@
     return (a.vid || '').indexOf('Житлов') === 0 ? 'Інша житлова' : 'Інша нежитлова';
   };
   A.areaGroup = function (a) { var h = Number((a.details || {}).area_ha); if (!h) return 'Площа не вказана'; if (h < 1) return 'до 1 га'; if (h < 5) return '1–5 га'; if (h < 20) return '5–20 га'; if (h < 100) return '20–100 га'; return 'понад 100 га'; };
-  A.shareGroup = function (a) { var p = Number((a.details || {}).share_pct); if (!p) return 'Не визначено'; if (p >= 100) return '100%'; if (p >= 50) return '50–99,9%'; if (p >= 25) return '25–49,9%'; if (p >= 10) return '10–24,9%'; return 'до 10%'; };
+  A.shareGroup = function (a) { if ((a.details || {}).corp_dup) return 'Дубль (не враховується)'; var p = Number((a.details || {}).share_pct); if (!p) return 'Не визначено'; if (p >= 100) return '100%'; if (p >= 50) return '50–99,9%'; if (p >= 25) return '25–49,9%'; if (p >= 10) return '10–24,9%'; return 'до 10%'; };
   var KEYS = ['q', 'category', 'mtu', 'dept', 'legal', 'invest', 'reason', 'way', 'complexity', 'region', 'zone', 'status', 'photo', 'val', 'plan', 'pool', 'review', 'discrepancy', 'unassigned', 'public', 'publish', 'company', 'kind', 'retype', 'vid', 'tech', 'purpose', 'area', 'share', 'cstatus', 'kved', 'basket', 'sort', 'legalbasis'];
   function planIndex() {
     var act = {}, over = {}, t = A.today();
@@ -104,7 +105,7 @@
       sel('discrepancy', [['1', 'Є розбіжність у правовому стані']], f.discrepancy, 'Розбіжності') + sel('legalbasis', [['manual', 'Встановлено вручну'], ['decisions', 'За рішеннями'], ['inventory', 'За інвентаризацією']], f.legalbasis, 'Джерело правового стану') +
       sel('unassigned', [['1', 'Не закріплено ні за МТУ, ні за відділом']], f.unassigned, 'Закріплення') + sel('public', [['1', 'Публічний за критерієм']], f.public, 'Критерій критичності') + sel('publish', [['1', 'Опубліковано']], f.publish, 'Публікація') +
       sel('sort', [['no', 'за номером'], ['name', 'за назвою'], ['value', 'за оцінкою'], ['decision', 'за датою рішення'], ['updated', 'нещодавно змінені']], f.sort, 'Сортування') +
-      ['retype', 'vid', 'tech', 'purpose', 'area', 'share', 'cstatus', 'kved', 'basket', 'kind', 'company'].map(function (k) { return f[k] ? '<input type="hidden" name="' + k + '" value="' + esc(f[k]) + '">' : ''; }).join('') +
+      ['retype', 'vid', 'tech', 'purpose', 'area', 'share', 'cstatus', 'kved', 'basket', 'kind', 'company', 'm'].map(function (k) { return f[k] ? '<input type="hidden" name="' + k + '" value="' + esc(f[k]) + '">' : ''; }).join('') +
       '</div></details></form>';
   };
   A.assetTable = function (rows, opts) {
@@ -126,7 +127,7 @@
     h += '<div class="sel-bar"><span class="mini">Обрано (з усіх пошуків): <b data-sel-count>0</b></span><a class="btn sm plain" href="' + A.link('/assets', {basket: 1}) + '">Показати обрані</a><button type="button" class="btn sm plain" data-click="basket-clear">Очистити вибір</button>' +
       '<select name="action" style="min-width:220px"><option value="">— масова дія —</option>' +
       (canMain ? '<option value="dept">Закріпити за відділом ДМА</option><option value="mtu">Закріпити за МТУ</option><option value="manager">Призначити менеджера ДМА</option><option value="invest">Встановити привабливість</option><option value="status">Змінити стан активу (зона — автоматично)</option>' : '') +
-      (A.can('manage_pools') ? '<option value="pool_new">Створити пул з обраних</option><option value="pool_add">Додати до пулу</option><option value="pool_remove">Вилучити з пулу</option>' : '') +
+      (A.can('manage_pools') ? '<option value="complex_new">Створити складний актив (ЦМК) з обраних</option><option value="pool_new">Створити пул з обраних</option><option value="pool_add">Додати до пулу</option><option value="pool_remove">Вилучити з пулу</option>' : '') +
       (A.can('manage_public') ? '<option value="publish">Опублікувати на сайті</option><option value="unpublish">Зняти з публікації</option>' : '') +
       (A.can('delete_records') ? '<option value="delete">Видалити обрані активи</option>' : '') +
       '</select><select name="value" style="min-width:220px"><option value="">— значення —</option><optgroup label="Відділ ДМА">' + A.opts(D.DMA, null, null) + '</optgroup><optgroup label="МТУ">' + A.opts(A.OPT.MTU, null, null) +
@@ -142,7 +143,7 @@
   A.ACT.bulk = function (f, d) {
     var ids = A.basket.get(), act = d.action, v = d.value || '', as = ids.map(function (i) { return A.get('assets', i); }).filter(Boolean);
     if (!ids.length || !act) { A.toast('Оберіть активи і дію.', 'err'); return; }
-    if (act === 'pool_new') { if (!A.can('manage_pools')) return A.deny(); return A.go(A.link('/pool/new', {ids: ids.join(',')})); }
+    if (act === 'pool_new' || act === 'complex_new') { if (!A.can('manage_pools')) return A.deny(); return A.go(A.link('/pool/new', {ids: ids.join(','), kind: act === 'complex_new' ? 'complex' : null})); }
     if (act === 'delete') { if (!confirm('Видалити ' + ids.length + ' активів разом з їхніми зв’язками? Дію не можна скасувати.')) return; var tx0 = A.tx(); ids.forEach(function (i) { tx0.del('assets', i); }); tx0.log('Видалено активи', 'asset', null, {count: ids.length});
       return tx0.commit().then(function () { A.basket.set([]); A.toast('Видалено активів: ' + ids.length); A.route(); }); }
     var tx = A.tx(), n = 0, need = {dept: 1, mtu: 1, manager: 1, invest: 1, status: 1};
@@ -178,7 +179,7 @@
       A.kpi('Передано за договором', A.num(c(function (a) { return a.transfer_way === 'manager_contract'; })), 'управителя визначено', L({way: 'manager_contract'})) +
       A.kpi('Пошук управителя', A.num(c(function (a) { return a.transfer_way === 'manager_search'; })), 'конкурсний відбір', L({way: 'manager_search'})) +
       A.kpi('Реалізація', A.num(c(function (a) { return a.transfer_way === 'realization'; })), 'електронні торги', L({way: 'realization'})) + '</div><div class="grid g5" style="margin-top:14px">' +
-      A.kpi('Оцінена вартість', A.num(valTotal, 2) + ' ₴', 'актуальні оцінки (' + cur.length + ')', '#/valuations') + A.kpi('Пулів активів', A.num(A.T('pools').length), 'оцінка і план — на рівні пулу', '#/pools') +
+      A.kpi('Оцінена вартість', A.num(valTotal, 2) + ' ₴', 'актуальні оцінки (' + cur.length + ')', '#/valuations') + A.kpi('Пулів активів', A.num(A.T('pools').length) + '<small> · ' + A.num(All.filter(function (a) { return a.pool_id; }).length) + ' активів</small>', 'активів у складі пулів; оцінка і план — на рівні пулу', '#/pools') +
       A.kpi('Активних планів дій', A.num(act.length), review + ' кроків очікують підтвердження', '#/plans') + A.kpi('Прострочені кроки', A.num(overdue), 'строк кроку минув', A.link('/plans', {state: 'overdue'}), 'overdue') +
       A.kpi('Розбіжності правового стану', A.num(c(function (a) { return a.legal_note && a.legal_basis !== 'manual'; })), 'потребують перевірки', L({discrepancy: 1})) + '</div>';
     var k = A.series(A.grp(att, 'report_kind'), N.KIND, function (v) { return L({invest: 'attractive', kind: v}); }),
@@ -225,73 +226,107 @@
 
   // ================================================================ категорії
   var ZCOL = {'Червона зона': '#F0524E', 'Жовта зона': '#F5C518', 'Синя зона': '#4C8DF6', 'Сіра зона': '#8A94A6'};
+  A.areaOf = function (a) { var d = a.details || {}; var v = a.category === 'land' ? (d.area_ha || d.area_calc_ha) : d.area_sqm; v = A.parseNum(v); return v && v > 0 && v < 1e8 ? v : 0; };
   A.on(/^\/c\/(\w+)$/, function (code, f) {
     if (!N.CAT[code]) return A.notFound();
     if (!A.catAllowed(code)) return A.deny();
     var all = A.T('assets').filter(function (a) { return a.category === code && A.inScope(a); });
     var ff = Object.assign({}, f, {category: code}), list = A.filterAssets(ff, all), pg = A.pageOf(list, f), p = Object.assign({}, f); delete p.page;
-    var C = function (o) { return A.link('/c/' + code, o); }, fin = A.FIN.indexOf(code) >= 0, h = '';
+    var foc = f.invest === 'attractive', base = foc ? all.filter(function (a) { return a.invest_grade === 'attractive'; }) : all;   // «Інвестиційно привабливі» — уся аналітика перераховується
+    var areaCat = code === 'realestate' || code === 'land', byArea = areaCat && f.m === 'area', U = code === 'land' ? 'га' : 'м²';
+    var keep = {}; if (foc) keep.invest = 'attractive'; if (byArea) keep.m = 'area';
+    var C = function (o) { return A.link('/c/' + code, Object.assign({}, keep, o)); }, fin = A.FIN.indexOf(code) >= 0, h = '';
+    var G = function (lst, key) { return byArea ? A.sum(lst, key, A.areaOf).map(function (x) { return [x[0], Math.round(x[1] * 100) / 100]; }).filter(function (x) { return x[1] > 0; }) : A.grp(lst, key); };
     if (code === 'money') h += A.moneyPage(all);
     else if (code === 'crypto') h += A.cryptoPage(all);
     else {
-      h += '<div class="grid g5">' + A.kpi('Активів', A.num(all.length), N.CAT[code], C({})) + A.kpi('Інвестиційно привабливі', A.num(all.filter(function (a) { return a.invest_grade === 'attractive'; }).length), 'фокус ДМА', C({invest: 'attractive'})) +
-        A.kpi('Повний обсяг повноважень', A.num(all.filter(function (a) { return a.legal_status === 'full'; }).length), 'правовий стан', C({legal: 'full'})) +
-        A.kpi('Оцінена вартість', A.money(all.reduce(function (s, a) { return s + (a.val_amount || 0); }, 0)), 'актуальні оцінки активів') +
-        A.kpi('Не закріплено', A.num(all.filter(function (a) { return !a.mtu_code && !a.dept_code; }).length), 'ні за МТУ, ні за відділом', C({unassigned: 1}), 'overdue') + '</div>';
+      var nAtt = all.filter(function (a) { return a.invest_grade === 'attractive'; }).length, totArea = base.reduce(function (s, a) { return s + A.areaOf(a); }, 0);
+      h += '<div class="grid g5">' + A.kpi('Активів', A.num(base.length), foc ? 'інвестиційно привабливі' : N.CAT[code], A.link('/c/' + code, byArea ? {m: 'area'} : {})) +
+        A.kpi('Інвестиційно привабливі', A.num(nAtt), foc ? 'показано лише привабливі · натисніть, щоб скинути' : 'натисніть — аналітика лише за ними', foc ? A.link('/c/' + code, byArea ? {m: 'area'} : {}) : C({invest: 'attractive'}), 'att' + (foc ? ' on' : '')) +
+        (areaCat ? A.kpi(code === 'land' ? 'Площа земельних ділянок' : 'Площа нерухомості', A.num(totArea, code === 'land' ? 2 : 0) + ' ' + U, 'за даними карток (' + base.filter(function (a) { return A.areaOf(a); }).length + ' з площею)') : A.kpi('Повний обсяг повноважень', A.num(base.filter(function (a) { return a.legal_status === 'full'; }).length), 'правовий стан', C({legal: 'full'}))) +
+        A.kpi('Оцінена вартість', A.money(base.reduce(function (s, a) { return s + (a.val_amount || 0); }, 0)), 'актуальні оцінки активів') +
+        A.kpi('Не закріплено', A.num(base.filter(function (a) { return !a.mtu_code && !a.dept_code; }).length), 'ні за МТУ, ні за відділом', C({unassigned: 1}), 'overdue') + '</div>';
+      if (foc) h += '<div class="flash info" style="margin-top:12px">Уся аналітика і перелік нижче — лише за інвестиційно привабливими активами (' + A.num(base.length) + '). <a href="' + A.link('/c/' + code, byArea ? {m: 'area'} : {}) + '">Показати всі</a></div>';
+      if (areaCat) h += '<div class="chips-filter" style="margin-top:12px"><span class="mini" style="align-self:center">Аналітика за:</span><a href="' + A.link('/c/' + code, Object.assign({}, foc ? {invest: 'attractive'} : {})) + '" class="' + (byArea ? '' : 'on') + '">кількістю активів</a><a href="' + A.link('/c/' + code, Object.assign({m: 'area'}, foc ? {invest: 'attractive'} : {})) + '" class="' + (byArea ? 'on' : '') + '">площею, ' + U + '</a></div>';
+      var unit = byArea ? ' <span>' + U + '</span>' : '';
       var sp = [];
-      if (code === 'realestate') sp.push(['За типами нерухомості', A.series(A.grp(all, A.reType), null, function (v) { return C({retype: v}); }), 'gold', 'barh']);
-      if (code === 'land') { sp.push(['За цільовим призначенням', A.series(A.grp(all, function (a) { return (a.details || {}).purpose; }), null, function (v) { return C({purpose: v}); }, 12), 'ok', 'barh']);
-        var order = ['до 1 га', '1–5 га', '5–20 га', '20–100 га', 'понад 100 га', 'Площа не вказана'], ag = A.grp(all, A.areaGroup).sort(function (a, b) { return order.indexOf(a[0]) - order.indexOf(b[0]); });
+      if (code === 'realestate') sp.push(['За типами нерухомості', A.series(G(base, A.reType), null, function (v) { return C({retype: v}); }), 'gold', 'barh']);
+      if (code === 'land') { sp.push(['За цільовим призначенням', A.series(G(base, function (a) { return (a.details || {}).purpose; }), null, function (v) { return C({purpose: v}); }, 12), 'ok', 'barh']);
+        var order = ['до 1 га', '1–5 га', '5–20 га', '20–100 га', 'понад 100 га', 'Площа не вказана'], ag = G(base, A.areaGroup).sort(function (a, b) { return order.indexOf(a[0]) - order.indexOf(b[0]); });
         sp.push(['Площа за групами', A.series(ag, null, function (v) { return C({area: v}); }), 'cyan', 'barv']); }
-      if (code === 'transport') { sp.push(['За видами транспорту', A.series(A.grp(all, 'vid'), null, function (v) { return C({vid: v}); }), 'cyan', 'barh']);
-        sp.push(['Технічний стан', A.series(A.grp(all, function (a) { return a.tech_state || a.phys_src; }), null, function (v) { return C({tech: v}); }), 'lim', 'barh']); }
-      if (code === 'property') sp.push(['За видами майна', A.series(A.grp(all, 'vid'), null, function (v) { return C({vid: v}); }, 14), 'violet', 'barh']);
+      if (code === 'transport') { sp.push(['За видами транспорту', A.series(A.grp(base, 'vid'), null, function (v) { return C({vid: v}); }), 'cyan', 'barh']);
+        sp.push(['Технічний стан', A.series(A.grp(base, function (a) { return a.tech_state || a.phys_src; }), null, function (v) { return C({tech: v}); }), 'lim', 'barh']); }
+      if (code === 'property') sp.push(['За видами майна', A.series(A.grp(base, 'vid'), null, function (v) { return C({vid: v}); }, 14), 'violet', 'barh']);
       if (code === 'corporate') {
+        var cb = base.filter(function (a) { return !(a.details || {}).corp_dup; });
         var so = ['100%', '50–99,9%', '25–49,9%', '10–24,9%', 'до 10%', 'Не визначено'];
-        sp.push(['За розміром частки', A.series(A.grp(all, A.shareGroup).sort(function (a, b) { return so.indexOf(a[0]) - so.indexOf(b[0]); }), null, function (v) { return C({share: v}); }), 'gold', 'barv']);
-        var cs = A.grp(all, function (a) { return (A.indexes.comp[a.company_code] || {}).status || 'Не визначено'; });
+        sp.push(['За розміром частки', A.series(A.grp(cb, A.shareGroup).sort(function (a, b) { return so.indexOf(a[0]) - so.indexOf(b[0]); }), null, function (v) { return C({share: v}); }), 'gold', 'barv']);
+        var cs = A.grp(cb, function (a) { return (A.indexes.comp[a.company_code] || {}).status || 'Не визначено'; });
         sp.push(['Стан юридичних осіб', A.series(cs, null, function (v) { return C({cstatus: v}); }), null, 'donut', cs.map(function (x) { return {'Зареєстровано (діюча)': '#3DD68C', 'В стані припинення': '#F5A524', 'Порушено справу про банкрутство': '#F0524E', 'Припинено': '#8B7BF7'}[x[0]] || '#6E7F9E'; })]);
-        var divs = A.json(S.settings.kved_divisions), kv = A.grp(all.filter(function (a) { return a.company_code; }), function (a) { return ((A.indexes.comp[a.company_code] || {}).kved || '').slice(0, 2); });
+        var divs = A.json(S.settings.kved_divisions), kv = A.grp(cb.filter(function (a) { return a.company_code; }), function (a) { return ((A.indexes.comp[a.company_code] || {}).kved || '').slice(0, 2); });
         sp.push(['За галузями (КВЕД)', [kv.slice(0, 12).map(function (x) { return x[0] ? x[0] + ' ' + (divs[x[0]] || '') : 'КВЕД не визначено'; }), kv.slice(0, 12).map(function (x) { return x[1]; }), kv.slice(0, 12).map(function (x) { return C({kved: x[0] || '__none__'}); })], 'blue', 'barh']);
       }
-      var lg = A.series(A.grp(all, 'legal_status'), N.LS, function (v) { return C({legal: v}); }), zn = A.series(A.grp(all, 'zone'), null, function (v) { return C({zone: v}); });
-      var iv = A.series(A.grp(all, 'invest_grade'), N.INV, function (v) { return C({invest: v}); }), wy = A.series(A.grp(all, 'transfer_way'), N.WAY, function (v) { return C({way: v}); });
-      var dp = A.series(A.grp(all, 'dept_code'), N.DMA_SHORT, function (v) { return C({dept: v}); }), mt = A.series(A.grp(all, 'mtu_code'), N.MTU, function (v) { return C({mtu: v}); });
-      var rg = A.series(A.grp(all.filter(function (a) { return a.region; }), 'region'), null, function (v) { return C({region: v}); }, 12);
-      h += '<h2>Аналітика</h2><div class="grid g3">' + sp.map(function (x) { return '<div class="panel"><h3>' + esc(x[0]) + '</h3>' + A.chart(x[3], x[1], x[2], x[4]) + '</div>'; }).join('') +
-        '<div class="panel"><h3>Зони</h3>' + A.chart('donut', zn, null, zn[0].map(function (z) { return ZCOL[z] || '#6E7F9E'; })) + '</div>' +
-        '<div class="panel"><h3>Правовий стан</h3>' + A.chart('barh', lg, 'ok') + '</div><div class="panel"><h3>Інвестиційна привабливість</h3>' + A.chart('donut', iv, null, ['#F5C518', '#3DD68C', '#F5A524', '#6E7F9E', '#5B7DB1']) + '</div>' +
-        '<div class="panel"><h3>Спосіб передачі</h3>' + A.chart('barh', wy, 'cyan') + '</div><div class="panel"><h3>Відділи ДМА</h3>' + A.chart('barh', dp, 'violet') + '</div>' +
-        '<div class="panel"><h3>МТУ</h3>' + A.chart('barh', mt, 'gold') + '</div><div class="panel"><h3>Області <span>топ-12</span></h3>' + A.chart('barh', rg, 'blue') + '</div></div>';
-      if (code === 'land') h += A.landMapBlock(all);
+      var lg = A.series(G(base, 'legal_status'), N.LS, function (v) { return C({legal: v}); }), zn = A.series(G(base, 'zone'), null, function (v) { return C({zone: v}); });
+      var iv = A.series(G(base, 'invest_grade'), N.INV, function (v) { return C({invest: v}); }), wy = A.series(G(base, 'transfer_way'), N.WAY, function (v) { return C({way: v}); });
+      var dp = A.series(G(base, 'dept_code'), N.DMA_SHORT, function (v) { return C({dept: v}); }), mt = A.series(G(base, 'mtu_code'), N.MTU, function (v) { return C({mtu: v}); });
+      var rg = A.series(G(base.filter(function (a) { return a.region; }), 'region'), null, function (v) { return C({region: v}); }, 12);
+      h += '<h2>Аналітика' + (foc ? ' · інвестиційно привабливі' : '') + (byArea ? ' · за площею, ' + U : '') + '</h2><div class="grid g3">' + sp.map(function (x) { return '<div class="panel"><h3>' + esc(x[0]) + (x[0] === 'За розміром частки' || x[0] === 'Стан юридичних осіб' || x[0] === 'За галузями (КВЕД)' || code === 'transport' || code === 'property' ? '' : unit) + '</h3>' + A.chart(x[3], x[1], x[2], x[4]) + '</div>'; }).join('') +
+        '<div class="panel"><h3>Зони' + unit + '</h3>' + A.chart('donut', zn, null, zn[0].map(function (z) { return ZCOL[z] || '#6E7F9E'; })) + '</div>' +
+        '<div class="panel"><h3>Правовий стан' + unit + '</h3>' + A.chart('barh', lg, 'ok') + '</div>' + (foc ? '' : '<div class="panel"><h3>Інвестиційна привабливість' + unit + '</h3>' + A.chart('donut', iv, null, ['#F5C518', '#3DD68C', '#F5A524', '#6E7F9E', '#5B7DB1']) + '</div>') +
+        '<div class="panel"><h3>Спосіб передачі' + unit + '</h3>' + A.chart('barh', wy, 'cyan') + '</div><div class="panel"><h3>Відділи ДМА' + unit + '</h3>' + A.chart('barh', dp, 'violet') + '</div>' +
+        '<div class="panel"><h3>МТУ' + unit + '</h3>' + A.chart('barh', mt, 'gold') + '</div><div class="panel"><h3>Області <span>топ-12' + (byArea ? ', ' + U : '') + '</span></h3>' + A.chart('barh', rg, 'blue') + '</div></div>';
+      if (code === 'land') h += A.landMapBlock(base);
       if (code === 'corporate') h += '<p style="margin-top:10px"><a class="btn" href="#/companies">Пул товариств і картки компаній →</a></p>';
     }
-    h += '<h2>Перелік активів</h2>' + A.filtersForm(f, '/c/' + code, true) + A.pager(list.length, pg.page, '/c/' + code, p) + A.assetTable(pg.rows) + A.pager(list.length, pg.page, '/c/' + code, p);
+    h += '<h2>Перелік активів' + (foc ? ' · інвестиційно привабливі' : '') + '</h2>' + A.filtersForm(f, '/c/' + code, true) + A.pager(list.length, pg.page, '/c/' + code, p) + A.assetTable(pg.rows) + A.pager(list.length, pg.page, '/c/' + code, p);
     A.render(A.shell(N.CAT[code], fin ? 'Аналізується Відділом управління грошовими коштами та банківськими металами; на скринінг МТУ не передається' : 'Аналітика, перелік і картки активів категорії', '', h), A.keep);
   });
 
   // ---------------------------------------------------------------- земля: карта
   A.landMapBlock = function (all) {
-    var f = A.params();
-    return '<h2>Карта ділянок</h2><div class="panel"><form class="filters" data-act="filter" data-base="/c/land" style="margin-bottom:10px">' +
-      A.sel('mregion', D.REGIONS, f.mregion, 'Уся Україна') + A.sel('mzone', D.ZONES, f.mzone, 'Усі зони') + A.sel('minvest', D.INVEST_GRADES, f.minvest, 'Будь-яка привабливість') +
-      '<button class="btn">Показати на карті</button>' + (A.can('system') || A.can('edit_any_asset') ? '<label class="btn plain" style="margin-left:auto">Завантажити GeoJSON контурів<input type="file" accept=".geojson,.json" data-geojson style="display:none"></label>' : '') + '</form>' +
-      '<div data-map></div><p class="mini" style="margin-top:6px">Колір — зона активу. Натисніть на ділянку, щоб відкрити картку. Контури з GeoJSON зіставляються з активами за кадастровим номером; площа рахується автоматично.</p></div>';
+    var f = A.params(), withPoly = all.filter(function (a) { return a.details && a.details.geometry; }).length, withPt = all.filter(function (a) { return a.lat && a.lon; }).length;
+    A._landBase = all;
+    return '<h2>Карта ділянок</h2><div class="panel"><div class="map-panel">' +
+      A.sel('mregion', D.REGIONS, f.mregion, 'Уся Україна', 'data-mf') + A.sel('mzone', D.ZONES, f.mzone, 'Усі зони', 'data-mf') + A.sel('minvest', D.INVEST_GRADES, f.minvest, 'Будь-яка привабливість', 'data-mf') +
+      '<input data-mf name="mq" value="' + esc(f.mq || '') + '" placeholder="Кадастровий № або назва" style="min-width:200px">' +
+      '<span class="mini" data-mstat></span>' + (A.can('system') || A.can('edit_any_asset') ? '<label class="btn plain" style="margin-left:auto">Завантажити контури (GeoJSON)<input type="file" accept=".geojson,.json" data-geojson style="display:none"></label>' : '') + '</div>' +
+      '<div data-map></div><p class="mini" style="margin-top:6px">Колір — зона активу; при малому масштабі ділянки групуються (клік — наблизити). Підкладки: «Схема», «Супутник», OSM; «Кадастр» — шар Публічної кадастрової карти (з масштабу 12, якщо сервер Держгеокадастру доступний з вашої мережі). ' +
+      'Точки — координати з файлу кадастрових номерів (' + A.num(withPt) + ' ділянок); контури — з GeoJSON (' + A.num(withPoly) + '): кнопка «Завантажити контури» приймає FeatureCollection, де у властивостях є кадастровий номер — контур прив’язується до ділянки з таким номером, площа рахується автоматично.</p>' +
+      '<div class="land-list" data-landlist></div></div>';
   };
   A.afterRender.push(function (root) {
     var el = root.querySelector('[data-map]'); if (!el || el.dataset.done) return; el.dataset.done = 1;
-    var f = A.params(), all = A.T('assets').filter(function (a) { return a.category === 'land' && A.inScope(a); });
-    all = all.filter(function (a) { return (!f.mregion || a.region === f.mregion) && (!f.mzone || a.zone === f.mzone) && (!f.minvest || a.invest_grade === f.minvest); });
-    var m = new window.ArmaMap(el, {tiles: S.settings.map_tiles, onClick: function (p) { A.go('#/asset/' + p.id); }});
-    var pts = [], polys = [];
-    all.forEach(function (a) {
-      var d = a.details || {}, col = ZCOL[a.zone] || '#6E7F9E';
-      if (d.geometry && d.geometry.coordinates) { (d.geometry.type === 'MultiPolygon' ? d.geometry.coordinates : [d.geometry.coordinates]).forEach(function (poly) { polys.push({rings: poly, color: col, id: a.id}); }); }
-      if (a.lat && a.lon) pts.push({lat: a.lat, lon: a.lon, color: col, id: a.id, label: a.asset_no + ' · ' + (a.name || '').slice(0, 80)});
-    });
-    m.setData(pts.slice(0, 8000), polys);
-    if (f.mregion) m.fitPoints();
-    var leg = document.createElement('div'); leg.className = 'map-legend'; leg.innerHTML = Object.keys(ZCOL).map(function (z) { return '<span><i style="background:' + ZCOL[z] + '"></i>' + z + '</span>'; }).join('') + '<span>Ділянок на карті: ' + pts.length + '</span>'; el.appendChild(leg);
+    var base = (A._landBase || A.T('assets').filter(function (a) { return a.category === 'land' && A.inScope(a); }));
+    var m = new window.ArmaMap(el, {tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, onClick: function (p) { A.go('#/asset/' + p.id); }});
+    var leg = document.createElement('div'); leg.className = 'map-legend'; el.appendChild(leg);
+    var shown = 60;
+    function val(n) { var x = root.querySelector('[data-mf][name="' + n + '"]'); return x ? x.value.trim() : ''; }
+    function apply(fit) {
+      var rg = val('mregion'), zn = val('mzone'), iv = val('minvest'), q = val('mq').toLowerCase();
+      var list = base.filter(function (a) { return (!rg || a.region === rg) && (!zn || a.zone === zn) && (!iv || a.invest_grade === iv) && (!q || ((a.cadastral || '') + ' ' + (a.name || '') + ' ' + a.asset_no).toLowerCase().indexOf(q) >= 0); });
+      var pts = [], polys = [];
+      list.forEach(function (a) {
+        var d = a.details || {}, col = ZCOL[a.zone] || '#6E7F9E', lab = a.asset_no + ' · ' + (a.cadastral || '') + ' · ' + (d.area_ha ? A.num(d.area_ha, 4) + ' га' : '');
+        var g = d.geometry; if (g && g.coordinates) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (poly) { polys.push({rings: poly, color: col, id: a.id, label: lab}); });
+        if (a.lat && a.lon) pts.push({lat: a.lat, lon: a.lon, color: col, id: a.id, label: lab, hasPoly: !!g});
+      });
+      m.setData(pts, polys);
+      if (fit) { if (rg || q || zn || iv) m.fitPoints(); else m.fit(44.3, 22, 52.4, 40.3); }
+      var zc = {}; list.forEach(function (a) { zc[a.zone] = (zc[a.zone] || 0) + 1; });
+      leg.innerHTML = Object.keys(ZCOL).map(function (z) { return '<span><i style="background:' + ZCOL[z] + '"></i>' + z.replace(' зона', '') + ' ' + (zc[z] || 0) + '</span>'; }).join('') + '<span>На карті: ' + pts.length + (polys.length ? ' · контурів ' + polys.length : '') + '</span>';
+      var st = root.querySelector('[data-mstat]'); if (st) st.textContent = 'ділянок: ' + A.num(list.length) + ' · площа ' + A.num(list.reduce(function (x, a) { return x + (Number((a.details || {}).area_ha) || 0); }, 0), 1) + ' га';
+      var rows = list.slice().sort(function (a, b) { return (Number((b.details || {}).area_ha) || 0) - (Number((a.details || {}).area_ha) || 0); });
+      var box = root.querySelector('[data-landlist]');
+      box.innerHTML = '<div class="wrap-tbl"><table><thead><tr><th>№ у Реєстрі</th><th>Ділянка</th><th>Область</th><th>Кадастровий №</th><th class="num">Площа, га</th><th>Зона</th></tr></thead><tbody>' + rows.slice(0, shown).map(function (a) {
+        return '<tr><td class="nowrap"><a class="id" href="#/asset/' + a.id + '">' + esc(a.asset_no) + '</a></td><td style="max-width:420px"><span class="clip" title="' + esc(a.name) + '">' + esc((a.name || '').slice(0, 140)) + '</span></td><td class="mini">' + esc(a.region || '—') + '</td><td class="mono mini">' + esc(a.cadastral || '') + '</td><td class="num">' + A.num((a.details || {}).area_ha, 4) + '</td><td>' + A.zone(a.zone, true) + '</td></tr>';
+      }).join('') + (rows.length ? '' : '<tr><td colspan="6"><div class="empty">Ділянок за умовами немає</div></td></tr>') + '</tbody></table></div>' + (rows.length > shown ? '<p><button type="button" class="btn sm" data-more>Показати ще (' + (rows.length - shown) + ')</button></p>' : '');
+      var mb = box.querySelector('[data-more]'); if (mb) mb.addEventListener('click', function () { shown += 120; apply(false); });
+      // стан фільтра карти — в адресі сторінки без перезавантаження сторінки
+      try { var ps = A.params(); ['mregion', 'mzone', 'minvest', 'mq'].forEach(function (k) { var v = val(k); if (v) ps[k] = v; else delete ps[k]; }); history.replaceState(null, '', A.link(location.hash.slice(1).split('?')[0], ps)); } catch (e) { /* без збереження */ }
+    }
+    var tmr = null;
+    root.querySelectorAll('[data-mf]').forEach(function (x) { x.addEventListener(x.tagName === 'INPUT' ? 'input' : 'change', function () { clearTimeout(tmr); tmr = setTimeout(function () { shown = 60; apply(true); }, x.tagName === 'INPUT' ? 350 : 0); }); });
+    apply(!!(A.params().mregion || A.params().mq));
     var inp = root.querySelector('[data-geojson]');
     if (inp) inp.addEventListener('change', function () { var file = inp.files[0]; if (!file) return; var rd = new FileReader(); rd.onload = function () { A.importGeojson(rd.result, file.name); }; rd.readAsText(file); });
   });

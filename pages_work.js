@@ -27,19 +27,20 @@
       if (f.dept && (f.dept === '__none__' ? p.dept_code : p.dept_code !== f.dept)) return false;
       if (f.publish === '1' && !p.publish) return false; if (f.publish === '0' && p.publish) return false;
       if (f.way && p.transfer_way !== f.way) return false; if (f.category && p.category !== f.category) return false;
+      if (f.kind === 'complex' && p.complexity !== 'complex') return false; if (f.kind === 'pool' && p.complexity === 'complex') return false;
       return true;
     }).sort(function (a, b) { return (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id; });
     var pg = A.pageOf(list, f), q = Object.assign({}, f); delete q.page;
     var h = '<form class="filters" data-act="filter" data-base="/pools"><input name="q" value="' + esc(f.q || '') + '" placeholder="Код, назва, опис, область, Prozorro" style="flex:1;min-width:260px">' +
       A.sel('dept', D.DMA.concat([['__none__', 'Не закріплено']]), f.dept, 'Усі відділи ДМА') + A.sel('category', A.OPT.CAT, f.category, 'Усі категорії') + A.sel('way', D.TRANSFER_WAYS, f.way, 'Спосіб передачі') +
-      A.sel('publish', [['1', 'Опубліковані'], ['0', 'Не опубліковані']], f.publish, 'Публікація') + '<button class="btn">Знайти</button><button type="button" class="btn plain" data-click="reset" data-base="/pools">Скинути все</button></form>' +
+      A.sel('kind', [['complex', 'Складні активи (ЦМК)'], ['pool', 'Пули']], f.kind, 'Пули і складні активи') + A.sel('publish', [['1', 'Опубліковані'], ['0', 'Не опубліковані']], f.publish, 'Публікація') + '<button class="btn">Знайти</button><button type="button" class="btn plain" data-click="reset" data-base="/pools">Скинути все</button></form>' +
       A.pager(list.length, pg.page, '/pools', q) + '<div class="wrap-tbl"><table><thead><tr><th>Код</th><th>Назва</th><th class="num">Активів</th><th>Відділ ДМА</th><th>Спосіб передачі</th><th class="num">Оцінка</th><th>План дій</th><th>Сайт</th></tr></thead><tbody>' +
       pg.rows.map(function (p) { var n = (A.indexes.poolAssets[p.id] || []).length, pl = A.plansOf('pool', p.id).filter(function (x) { return x.status === 'active'; })[0];
         return '<tr><td class="nowrap"><a class="id" href="#/pool/' + p.id + '">' + esc(p.code) + '</a></td><td style="max-width:420px"><span class="clip" title="' + esc(p.name) + '">' + esc(p.name || '') + '</span><span class="sub">' + esc(N.CAT[p.category] || '') + (p.region ? ' · ' + esc(p.region) : '') + '</span></td><td class="num">' + n + '</td>' +
           '<td class="mini">' + esc(N.DMA_SHORT[p.dept_code] || '—') + (p.dma_manager ? '<br>' + esc(p.dma_manager) : '') + '</td><td class="mini">' + esc(N.WAY[p.transfer_way] || '—') + '</td><td class="num">' + (p.val_amount ? A.money(p.val_amount) : '—') + '</td>' +
           '<td class="mini">' + (pl ? esc(N.PROC[pl.process]) : '—') + '</td><td>' + (p.publish ? '<span class="tag t-gold">опубліковано</span>' : '') + (p.prozorro_id ? ' ' + A.prozorroBtn(p) : '') + '</td></tr>'; }).join('') +
       (list.length ? '' : '<tr><td colspan="8"><div class="empty">Пулів не знайдено.</div></td></tr>') + '</tbody></table></div>' + A.pager(list.length, pg.page, '/pools', q);
-    A.render(A.shell('Пули активів', 'Об’єднання активів для спільної оцінки, плану дій і публікації', A.can('manage_pools') ? '<a class="btn gold" href="#/pool/new">+ Новий пул</a>' : '', h), A.keep);
+    A.render(A.shell('Пули і складні активи', 'Складний актив — об’єкти одного цілісного майнового комплексу; пул — активи, об’єднані за функціональною ознакою. Обидва — спільна оцінка, план дій і публікація', A.can('manage_pools') ? '<a class="btn gold" href="#/pool/new?kind=complex">+ Складний актив (ЦМК)</a><a class="btn" href="#/pool/new">+ Новий пул</a>' : '', h), A.keep);
   });
   function poolForm(p, isNew, ids) {
     var F = A.field, S2 = A.fsel, mg = A.users(function (u) { return u.dept_code; });
@@ -52,16 +53,16 @@
       F('Дата плану управління', 'mgmt_plan_date', p.mgmt_plan_date, 'date') + F('Закупівля / конкурс', 'procurement_info', p.procurement_info) + F('Договір управління', 'mgmt_contract', p.mgmt_contract) + F('Статус пулу', 'status', p.status) +
       F('Ідентифікатор лоту Prozorro', 'prozorro_id', p.prozorro_id) + F('Посилання на лот Prozorro', 'prozorro_url', p.prozorro_url, 'url', 0, '', 'wide') + '</div></fieldset>' +
       '<fieldset' + (A.can('manage_public') ? '' : ' disabled') + '><legend>Публічний сайт — зведена картка пулу</legend><p class="mini" style="margin-top:0">На сайті публікується пул як єдиний лот: характеристики, фото активів і контакти. Окремі активи пулу на сайті не показуються.</p><div class="form-grid">' +
-      F('Заголовок на сайті', 'public_title', p.public_title, 'text', 0, '', 'wide') + F('Опис на сайті', 'public_description', p.public_description, 'textarea', 0, 'без персональних даних', 'wide') +
+      F('Заголовок на сайті', 'public_title', p.public_title, 'text', 0, '', 'wide') + F('Опис на сайті', 'public_description', p.public_description, 'textarea', 0, 'без персональних даних', 'wide') + F('Відео YouTube', 'video_urls', p.video_urls, 'textarea', 0, 'посилання на відео YouTube, кожне з нового рядка', 'wide') +
       F('Підрозділ для звернень', 'public_dept', p.public_dept) + F('Телефон', 'public_phone', p.public_phone) + F('E-mail', 'public_email', p.public_email, 'email') + S2('Опублікувати', 'publish', [['0', 'Ні'], ['1', 'Так']], p.publish ? '1' : '0', 0, '', '', '', null) + '</div></fieldset>' +
       (isNew ? '<fieldset><legend>Активи пулу</legend><div class="form-grid">' + F('Номери активів у Реєстрі', 'asset_nos', '', 'textarea', 0, 'Через кому, пробіл або з нового рядка' + (ids && ids.length ? '. Обрано в реєстрі: ' + ids.length : ''), 'wide') + '</div></fieldset>' : '') +
       actionsBar(isNew ? '#/pools' : '#/pool/' + p.id, isNew ? 'Створити пул' : 'Зберегти') + '</form>';
   }
   A.on(/^\/pool\/new$/, function (f) {
     if (!A.can('manage_pools')) return A.deny();
-    var ids = (f.ids || '').split(',').filter(Boolean).map(Number), y = new Date().getFullYear(), n = A.T('pools').filter(function (p) { return (p.code || '').indexOf('П-' + y) === 0; }).length + 1;
+    var cx = f.kind === 'complex', pre = cx ? 'СА-' : 'П-', ids = (f.ids || '').split(',').filter(Boolean).map(Number), y = new Date().getFullYear(), n = A.T('pools').filter(function (p) { return (p.code || '').indexOf(pre + y) === 0; }).length + 1;
     var first = ids.length && A.get('assets', ids[0]);
-    A.render(A.shell('Новий пул активів', ids.length ? 'З обраних у реєстрі активів: ' + ids.length : '', '', poolForm({code: 'П-' + y + '-' + ('00' + n).slice(-3), complexity: 'pool', dept_code: (first && first.dept_code) || (S.user && S.user.dept_code), category: first && first.category, region: first && first.region}, true, ids)));
+    A.render(A.shell(cx ? 'Новий складний актив (цілісний майновий комплекс)' : 'Новий пул активів', (cx ? 'Об’єкти одного ЦМК, що управляються як один актив · ' : 'Об’єднання активів за функціональною ознакою · ') + (ids.length ? 'обрано в реєстрі: ' + ids.length : ''), '', poolForm({code: pre + y + '-' + ('00' + n).slice(-3), complexity: cx ? 'complex' : 'pool', dept_code: (first && first.dept_code) || (S.user && S.user.dept_code), category: first && first.category, region: first && first.region}, true, ids)));
   });
   A.on(/^\/pool\/(\d+)\/edit$/, function (id) { var p = A.get('pools', +id); if (!p) return A.notFound(); if (!A.can('manage_pools') && !A.can('manage_public')) return A.deny(); A.render(A.shell('Редагування пулу ' + p.code, p.name || '', '', poolForm(p, false))); });
   A.ACT['pool-save'] = function (form, d) {
@@ -75,7 +76,7 @@
     else { pid = old.id; diffPut(tx, 'pools', old, rec); }
     var ids = (form.dataset.ids || '').split(',').filter(Boolean).map(Number), miss = [];
     nos(assetNos).forEach(function (no) { var a = A.indexes.byNo[no]; if (a) ids.push(a.id); else miss.push(no); });
-    var seen = {}; ids.forEach(function (i) { if (seen[i]) return; seen[i] = 1; var a = A.get('assets', i); if (a && a.pool_id !== pid) tx.put('assets', {id: a.id, pool_id: pid, complexity: 'pool'}, a.updated_at); });
+    var seen = {}; ids.forEach(function (i) { if (seen[i]) return; seen[i] = 1; var a = A.get('assets', i); if (a && a.pool_id !== pid) tx.put('assets', {id: a.id, pool_id: pid, complexity: rec.complexity === 'complex' ? 'complex' : 'pool'}, a.updated_at); });
     tx.log(isNew ? 'Створено пул' : 'Змінено пул', 'pool', isNew ? null : pid, {code: rec.code, assets: Object.keys(seen).length});
     return tx.commit().then(function (r) { if (miss.length) A.toast('Не знайдено активів: ' + miss.join(', '), 'err'); if (isNew) A.basket.set([]); A.toast(isNew ? 'Пул створено' : 'Пул збережено'); A.go('#/pool/' + r.id('pools', pid)); });
   };
@@ -88,7 +89,7 @@
     var h = '<div class="grid g4">' + A.kpi('Активів у пулі', A.num(sm.count), lg.map(function (x) { return (N.LS[x[0]] || x[0]) + ': ' + x[1]; }).join(' · ')) +
       A.kpi('Оцінка пулу', p.val_amount ? A.money(p.val_amount) : '—', p.val_date ? 'станом на ' + A.dt(p.val_date) : 'оцінки немає') + A.kpi('Очікуваний дохід', p.expected_income_year ? A.money(p.expected_income_year) : '—', 'на рік') +
       A.kpi('Орієнтовний план управління', esc(p.mgmt_plan_status || 'Не розроблено'), p.mgmt_plan_date ? A.dt(p.mgmt_plan_date) : '') + '</div>';
-    h += '<div class="tabs" data-tabbar="pool" style="margin-top:14px"><a href="#" data-tab="p-info">Відомості</a><a href="#" data-tab="p-assets">Активи <span class="pill">' + as.length + '</span></a><a href="#" data-tab="p-plan">План дій</a><a href="#" data-tab="p-val">Оцінки</a><a href="#" data-tab="p-docs">Документи</a><a href="#" data-tab="p-pub">Публікація</a></div>';
+    h += '<div class="tabs" data-tabbar="pool" style="margin-top:14px"><a href="#" data-tab="p-info">Відомості</a><a href="#" data-tab="p-assets">Активи <span class="pill">' + as.length + '</span></a><a href="#" data-tab="p-plan">План дій</a><a href="#" data-tab="p-val">Оцінки</a><a href="#" data-tab="p-docs">Документи</a><a href="#" data-tab="p-pub">Публікація і досьє</a></div>';
     h += '<div class="tabpane" id="p-info" data-group="pool"><div class="panel"><dl class="kv">' + dd('Код пулу', '<span class="mono">' + esc(p.code) + '</span>', true) + dd('Назва', p.name) +
       dd('Категорія / вид', [N.CAT[p.category], N.KIND[p.report_kind], N.CX[p.complexity]].filter(Boolean).join(' · ')) + dd('Область', p.region || sm.regions.join(', ')) + dd('Відділ ДМА', N.DMA[p.dept_code] || 'Не закріплено') + dd('Менеджер-куратор', p.dma_manager || '—') +
       dd('Інвестиційна привабливість', A.invest(p.invest_grade), true) + dd('Спосіб передачі', N.WAY[p.transfer_way] || '—') + dd('Підстава (судове рішення)', p.court_basis || '—') + dd('Опис', p.description || '—') +
@@ -105,8 +106,8 @@
     h += '<div class="tabpane" id="p-pub" data-group="pool"><div class="panel"><h3>Зведена картка пулу для публічного сайту ' + (p.publish ? '<span class="tag t-gold">опубліковано</span>' : '<span class="tag t-unk">не опубліковано</span>') + '</h3><dl class="kv">' +
       dd('Заголовок', p.public_title || p.name) + dd('Опис', p.public_description || p.description) + dd('Склад', sm.count + ' активів · ' + cats) + (sm.area ? dd('Загальна площа будівель', A.num(sm.area, 1) + ' м²') : '') + (sm.ha ? dd('Площа земельних ділянок', A.num(sm.ha, 4) + ' га') : '') +
       dd('Області', sm.regions.join(', ')) + dd('Фото для сайту', photos + ' (фото пулу та фото активів у складі)') + dd('Контакти', [p.public_dept, p.public_phone, p.public_email].filter(Boolean).join(' · ') || 'не вказано — будуть загальні контакти АРМА') + dd('Prozorro', A.prozorroBtn(p), true) + '</dl>' +
-      (A.can('manage_public') ? '<p><button class="btn ' + (p.publish ? 'plain' : 'gold') + '" data-click="pool-publish" data-id="' + p.id + '" data-v="' + (p.publish ? 0 : 1) + '">' + (p.publish ? 'Зняти з публікації' : 'Опублікувати пул') + '</button></p>' : '') + '</div></div>';
-    A.render(A.shell('Пул ' + p.code, p.name || '', act, h), A.keep);
+      (A.can('manage_public') ? '<p><button class="btn ' + (p.publish ? 'plain' : 'gold') + '" data-click="pool-publish" data-id="' + p.id + '" data-v="' + (p.publish ? 0 : 1) + '">' + (p.publish ? 'Зняти з публікації' : 'Опублікувати пул') + '</button></p>' : '') + '</div>' + A.dossierBlock('pool', p, A.can('manage_pools')) + '</div>';
+    A.render(A.shell((p.complexity === 'complex' ? 'Складний актив ' : 'Пул ') + p.code, p.name || '', act, h), A.keep);
   });
   A.ACT['pool-assets'] = function (f, d, btn) {
     var p = A.get('pools', +f.dataset.id), tx = A.tx(), n = 0;
@@ -124,6 +125,7 @@
     if (tt === 'asset') { var a = A.get('assets', id); return a ? {href: '#/asset/' + a.id, code: a.asset_no, name: a.name, rec: a} : null; }
     if (tt === 'pool') { var p = A.get('pools', id); return p ? {href: '#/pool/' + p.id, code: p.code, name: p.name, rec: p} : null; }
     if (tt === 'ident') { var r = A.get('ident_records', id); return r ? {href: '#/ident/' + r.id, code: 'Ідент. ' + (r.row_no ? 'р. ' + r.row_no : '#' + r.id), name: r.asset_desc, rec: r} : null; }
+    if (tt === 'ident_appeal') { var ap = A.get('ident_appeals', id); return ap ? {href: '#/ident/appeal/' + ap.id, code: 'Звернення ' + (ap.seq || ap.id), name: (ap.reg_no ? '№ ' + ap.reg_no + ' · ' : '') + (N.IBODY ? N.IBODY[ap.body] || '' : ''), rec: ap} : null; }
     if (tt === 'ident_group') { var g = A.get('ident_groups', id); return g ? {href: '#/ident/group/' + g.id, code: g.code, name: g.name, rec: g} : null; }
     return null;
   };
@@ -147,10 +149,30 @@
       (f.step && f.process ? '<div class="flash info">Крок ' + esc(f.step) + ': ' + esc(((N.STEPS[f.process] || [])[+f.step - 1] || [])[0] || '') + '</div>' : '') + A.pager(rows.length, pg.page, '/plans', q) +
       '<div class="wrap-tbl"><table><thead><tr><th>Об’єкт</th><th>Процес</th><th>Поточні кроки</th><th>Строк</th><th>Прогрес</th><th>Відповідальні</th></tr></thead><tbody>' + pg.rows.map(function (r) {
         return '<tr><td style="max-width:320px"><a class="id" href="' + r.tg.href + '">' + esc(r.tg.code) + '</a><span class="sub clip" title="' + esc(r.tg.name) + '">' + esc((r.tg.name || '').slice(0, 90)) + '</span></td><td class="mini">' + esc(N.PROC[r.p.process]) + '</td>' +
-          '<td class="mini">' + r.cur.map(function (s) { return s.ord + '. ' + esc(s.name) + (s.status === 'review' ? ' <span class="tag t-unk">на підтвердженні</span>' : ''); }).join('<br>') + (r.p.status !== 'active' ? esc({done: 'завершено', cancelled: 'скасовано'}[r.p.status] || '') : '') + '</td>' +
+          '<td class="mini">' + r.cur.map(function (s) { return (/^\d/.test(s.name || '') ? '' : s.ord + '. ') + esc(s.name) + (s.status === 'review' ? ' <span class="tag t-unk">на підтвердженні</span>' : ''); }).join('<br>') + (r.p.status !== 'active' ? esc({done: 'завершено', cancelled: 'скасовано'}[r.p.status] || '') : '') + '</td>' +
           '<td class="mini ' + (r.over ? 'overdue' : '') + '">' + r.cur.map(function (s) { return s.due_date ? A.dt(s.due_date) : ''; }).join('<br>') + '</td><td><div class="prog" style="width:90px"><div style="width:' + (r.total ? r.done * 100 / r.total : 0) + '%"></div></div><span class="mini">' + r.done + '/' + r.total + '</span></td>' +
           '<td class="mini">' + esc(r.p.manager || '—') + '<br>' + esc(N.DMA_SHORT[r.p.dept_code] || '') + '</td></tr>'; }).join('') + (rows.length ? '' : '<tr><td colspan="6"><div class="empty">Планів не знайдено.</div></td></tr>') + '</tbody></table></div>';
     A.render(A.shell('Плани дій (CRM)', 'Етапи робіт за бізнес-процесами; паралельні кроки виконуються одночасно', '', h), A.keep);
+  });
+
+  // ================================================================ погодження (вхідні запити на підтвердження кроків)
+  A.on(/^\/approvals$/, function () {
+    var me = S.user || {}, row = function (s, mine) {
+      var p = A.get('plans', s.plan_id) || {}, tg = A.targetOf(p.target_type, p.target_id) || {href: '#', code: '—', name: ''}, hs = A.json(s.history, []);
+      var last = Array.isArray(hs) ? hs.filter(function (x) { return /подано/.test(x.a); }).slice(-1)[0] : null;
+      return '<tr><td><a class="id" href="' + tg.href + '">' + esc(tg.code) + '</a><span class="sub clip">' + esc((tg.name || '').slice(0, 90)) + '</span></td><td class="mini">' + esc(N.PROC[p.process] || '') + '</td>' +
+        '<td><b>' + (/^\d/.test(s.name || '') ? '' : s.ord + '. ') + esc(s.name) + '</b><span class="sub">' + esc(s.responsible || '') + '</span></td><td class="mini">' + esc((last && last.name) || s.done_by || '') + '<br>' + esc((s.requested_at || s.done_at || '').slice(0, 16)) + (last && last.c ? '<br>«' + esc(last.c) + '»' : '') + '</td>' +
+        '<td class="mini">' + esc(A.approverNames(s)) + '</td><td class="actions-inline">' + (mine ? '<span class="mini">очікує</span>' : '<button class="btn sm gold" data-click="step" data-a="confirm" data-id="' + s.id + '">Погодити</button><button class="btn sm plain" data-click="step" data-a="return" data-id="' + s.id + '">Повернути</button>') + '</td></tr>';
+    };
+    var inbox = A.myApprovals(), mine = A.T('plan_steps').filter(function (s) { return s.status === 'review' && s.done_by === me.login; });
+    var doneByMe = A.T('plan_steps').filter(function (s) { return s.confirmed_by === me.login; }).sort(function (a, b) { return (b.confirmed_at || '').localeCompare(a.confirmed_at || ''); }).slice(0, 30);
+    var th = '<thead><tr><th>Об’єкт</th><th>Процес</th><th>Крок</th><th>Подав</th><th>Погоджує</th><th></th></tr></thead>';
+    var h = '<div class="flash info">Як працює погодження: виконавець натискає «На підтвердження» — крок отримує статус «Очікує погодження» і з’являється тут у користувачів ролі-погоджувача (за відповідальним підрозділом кроку: напр. «Погодження з УВКБ» — Управління внутрішнього контролю та безпеки, «Підписання висновку» — Керівництво). Погодити власний крок неможливо. Після погодження стає активним наступний крок; «Повернути» повертає крок виконавцю з коментарем. Уся історія зберігається в кроці.</div>' +
+      '<h2>Очікують мого погодження <span class="mini">' + inbox.length + '</span></h2><div class="wrap-tbl"><table>' + th + '<tbody>' + inbox.map(function (s) { return row(s, false); }).join('') + (inbox.length ? '' : '<tr><td colspan="6"><div class="empty">Немає запитів на погодження.</div></td></tr>') + '</tbody></table></div>' +
+      '<h2>Мої подання на погодження <span class="mini">' + mine.length + '</span></h2><div class="wrap-tbl"><table>' + th + '<tbody>' + mine.map(function (s) { return row(s, true); }).join('') + (mine.length ? '' : '<tr><td colspan="6"><div class="empty">Немає.</div></td></tr>') + '</tbody></table></div>' +
+      '<h2>Погоджено мною</h2><div class="wrap-tbl"><table><thead><tr><th>Крок</th><th>Погоджено</th></tr></thead><tbody>' + doneByMe.map(function (s) { var p = A.get('plans', s.plan_id) || {}, tg = A.targetOf(p.target_type, p.target_id) || {href: '#', code: '—'};
+        return '<tr><td><a href="' + tg.href + '">' + esc(tg.code) + '</a> · ' + (/^\d/.test(s.name || '') ? '' : s.ord + '. ') + esc(s.name) + '</td><td class="mini">' + esc((s.confirmed_at || '').slice(0, 16)) + '</td></tr>'; }).join('') + (doneByMe.length ? '' : '<tr><td colspan="2"><div class="empty">—</div></td></tr>') + '</tbody></table></div>';
+    A.render(A.shell('Погодження', 'Запити на підтвердження кроків планів дій — від виконавців до погоджувачів', '', h), A.keep);
   });
 
   // ================================================================ судові рішення
@@ -314,7 +336,10 @@
   // ================================================================ товариства (корпоративні права)
   var CS_CSS = D.COMPANY_STATUS_CSS || {};
   A.companyStatus = function (s) { return s ? '<span class="tag t-' + (CS_CSS[s] || 'unk') + '">' + esc(s) + '</span>' : '<span class="tag t-unk">Не визначено</span>'; };
-  function companyAssets(code) { return A.T('assets').filter(function (a) { return (a.company_code === code || a.owner_code === code) && A.inScope(a); }); }
+  // арештовані частки В товаристві (товариство — обʼєкт) і частки, що НАЛЕЖАТЬ товариству (воно — засновник)
+  function companyAssets(code) { return A.T('assets').filter(function (a) { return a.company_code === code && A.inScope(a); }); }
+  function ownedAssets(code) { return A.T('assets').filter(function (a) { return a.category === 'corporate' && (a.details || {}).founder_code === code && a.company_code !== code && A.inScope(a); }); }
+  A.founderOf = function (a) { var d = a.details || {}; return d.founder_name ? d.founder_name + (d.founder_code ? ' (ЄДРПОУ ' + d.founder_code + ')' : '') : d.founder_person ? d.founder_person : ''; };
   A.on(/^\/companies$/, function (f) {
     var cnt = {}; A.T('assets').forEach(function (a) { if (a.company_code && A.inScope(a)) cnt[a.company_code] = (cnt[a.company_code] || 0) + 1; });
     var list = A.T('companies').slice(), have = {}; list.forEach(function (c) { have[c.edrpou] = 1; });
@@ -334,17 +359,22 @@
     A.render(A.shell('Товариства (корпоративні права)', 'Картки юридичних осіб, частки в яких передано АРМА', '', h), A.keep);
   });
   A.on(/^\/company\/([^/]+)$/, function (code) {
-    code = decodeURIComponent(code); var c = A.indexes.comp[code], as = companyAssets(code);
-    if (!c && !as.length) return A.notFound(); c = c || {edrpou: code, name: ((as[0] || {}).details || {}).company_name || (as[0] || {}).name};
-    var ed = A.can('edit_corp_extra'), divs = A.json(S.settings.kved_divisions), share = as.reduce(function (s, a) { return s + (Number((a.details || {}).share_pct) || 0); }, 0);
+    code = decodeURIComponent(code); var c = A.indexes.comp[code], as = companyAssets(code), own0 = ownedAssets(code);
+    if (!c && !as.length && !own0.length) return A.notFound();
+    c = c || {edrpou: code, name: ((as[0] || {}).details || {}).company_name || ((own0[0] || {}).details || {}).founder_name || code};
+    var ed = A.can('edit_corp_extra'), divs = A.json(S.settings.kved_divisions), counted = as.filter(function (a) { return !(a.details || {}).corp_dup; }), share = counted.reduce(function (s, a) { return s + (Number((a.details || {}).share_pct) || 0); }, 0);
+    var owned = ownedAssets(code), founders = {}; counted.forEach(function (a) { var f = A.founderOf(a); if (f) founders[f] = (founders[f] || 0) + (Number((a.details || {}).share_pct) || 0); });
     var act = (ed ? '<a class="btn gold" href="#/company/' + esc(code) + '/edit">Редагувати картку</a>' : '') + '<a class="btn" href="' + esc(D.YOUCONTROL_URL.replace('{}', code)) + '" target="_blank" rel="noopener">YouControl</a><a class="btn plain" href="#/companies">До переліку</a>';
     var h = '<div class="grid g4">' + A.kpi('Стан юридичної особи', A.companyStatus(c.status), 'вноситься вручну за даними ЄДР / YouControl') + A.kpi('Частка АРМА', (c.share_total || share) > 100.01 ? '<span class="overdue">' + A.num(c.share_total || share, 2) + ' %</span>' : c.share_total ? A.num(c.share_total, 2) + ' %' : share ? A.num(share, 2) + ' %' : '—', (c.share_total || share) > 100.01 ? 'сума за записами перевищує 100 % — ймовірне задвоєння записів, перевірте перелік нижче' : 'у статутному капіталі') +
-      A.kpi('Статутний капітал', c.capital ? A.money(c.capital, true) : '—', '') + A.kpi('Активів у Реєстрі', A.num(as.length), 'корпоративні права та інше майно товариства') + '</div>' +
+      A.kpi('Статутний капітал', c.capital ? A.money(c.capital, true) : '—', '') + A.kpi('Записів у Реєстрі', A.num(as.length), 'арештовані частки в товаристві' + (owned.length ? '; ще ' + owned.length + ' — частки, що належать товариству' : '')) + '</div>' +
       '<div class="grid g2" style="margin-top:14px"><div class="panel"><h3>Реєстраційні відомості</h3><dl class="kv">' + dd('Код ЄДРПОУ', '<span class="mono">' + esc(code) + '</span>', true) + dd('Найменування', c.name) + dd('Організаційно-правова форма', c.legal_form) + dd('Дата реєстрації', A.dt(c.reg_date), true) +
       dd('Статутний капітал', c.capital ? A.money(c.capital, true) : '') + dd('Основний КВЕД', [c.kved, c.kved_name || divs[(c.kved || '').slice(0, 2)]].filter(Boolean).join(' — ')) + dd('Види діяльності', c.activities) + dd('Юридична адреса', c.address) + dd('Країна (для нерезидентів)', c.foreign_country) + '</dl></div>' +
       '<div class="panel"><h3>Управління і контроль</h3><dl class="kv">' + dd('Керівник', c.director) + dd('Кінцеві бенефіціари', c.beneficiaries) + dd('Кількість працівників', c.employees) + dd('Фінансові показники', c.finance) + dd('Ризики', c.risks) +
       dd('Відділ ДМА', N.DMA[c.dept_code] || 'Не закріплено') + dd('Аналітична довідка', c.analytics_note) + dd('Додатково', c.extra) + dd('Оновлено', (c.updated_at || '—') + (c.updated_by ? ' · ' + c.updated_by : '')) + '</dl></div></div>' +
-      '<h2>Активи цієї компанії в Реєстрі <span class="pill">' + as.length + '</span></h2>' + A.assetTable(as.slice(0, 200)) + (as.length > 200 ? '<p><a href="' + A.link('/assets', {company: code}) + '">Усі ' + as.length + ' активів →</a></p>' : '') +
+      (Object.keys(founders).length ? '<div class="panel" style="margin-top:14px"><h3>Засновники / власники арештованих часток</h3><table><tbody>' + Object.keys(founders).map(function (f) { return '<tr><td>' + esc(f) + '</td><td class="num">' + (founders[f] ? A.num(founders[f], 3) + ' %' : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
+      '<h2>Арештовані частки в цьому товаристві <span class="pill">' + as.length + '</span></h2><p class="mini">Активи Реєстру, де обʼєктом є це товариство (частка в його статутному капіталі). Записи, вилучені звіркою як дублі, позначені і в частці не враховуються.</p>' + A.assetTable(as.slice(0, 200)) + (as.length > 200 ? '<p><a href="' + A.link('/assets', {company: code}) + '">Усі ' + as.length + ' активів →</a></p>' : '') +
+      (owned.length ? '<h2>Частки, що належать цьому товариству (воно — засновник) <span class="pill">' + owned.length + '</span></h2><p class="mini">Корпоративні права цього товариства в інших юридичних особах, у т. ч. нерезидентах. У частку АРМА в цьому товаристві не входять.</p><div class="wrap-tbl"><table><thead><tr><th>№ у Реєстрі</th><th>Обʼєкт (товариство)</th><th class="num">Частка</th><th>Правовий стан</th></tr></thead><tbody>' +
+        owned.map(function (a) { var d = a.details || {}; return '<tr><td><a class="id" href="#/asset/' + a.id + '">' + esc(a.asset_no) + '</a></td><td>' + (a.company_code ? '<a href="#/company/' + esc(a.company_code) + '">' + esc(d.company_name || a.company_code) + '</a> <span class="mono mini">' + esc(a.company_code) + '</span>' : esc(d.foreign_company || d.company_name || '—') + (d.foreign_country ? ' <span class="tag t-unk">нерезидент · ' + esc(d.foreign_country) + '</span>' : '')) + '</td><td class="num">' + (d.share_pct ? A.num(d.share_pct, 3) + ' %' : '—') + '</td><td>' + A.legal(a.legal_status) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
       (c.id ? '<div style="margin-top:14px">' + A.docsBlock('company', c.id, ed, ['registry_extract', 'mgmt_contract', 'valuation_report', 'other']) + '</div>' : '');
     A.render(A.shell(c.name || code, 'ЄДРПОУ ' + code, act, h));
   });

@@ -151,12 +151,15 @@
 
   // ================================================================ план дій (CRM): кроки з паралельними групами
   A.plansOf = function (tt, id) { return (A.indexes.plans[tt + ':' + id] || []).slice().sort(function (a, b) { return b.id - a.id; }); };
-  A.createPlan = function (tx, tt, tid, process, dept, mgr) {
+  A.approversFor = function (responsible) { return (D.APPROVERS || {})[(responsible || '').trim()] || ['leadership']; };
+  // opt: {assign: {відповідальний: ПІБ}, mtu: 'коди МТУ', mtuNames: 'назви МТУ'} — виконавці кроків (куратор, МТУ огляду)
+  A.createPlan = function (tx, tt, tid, process, dept, mgr, opt) {
     var pr = D.PROCESSES.filter(function (p) { return p[0] === process; })[0]; if (!pr) throw new Error('Невідомий процес');
-    var pid = A.tmpId(), t = A.today(), first = pr[3][0][4] || 1;
+    var pid = A.tmpId(), t = A.today(), first = pr[3][0][4] || 1; opt = opt || {};
     tx.put('plans', {id: pid, target_type: tt, target_id: tid, process: process, dept_code: dept || null, manager_id: mgr ? mgr.id : null, manager: mgr ? mgr.full_name : null, status: 'active', started_at: t, created_by: S.user && S.user.login});
-    pr[3].forEach(function (s, i) { var g = s[4] || i + 1, act = g === first;
-      tx.put('plan_steps', {id: A.tmpId(), plan_id: pid, ord: i + 1, grp: g, name: s[0], responsible: s[1], norm_days: s[2], needs_confirm: s[3] ? 1 : 0, status: act ? 'active' : 'pending', started_at: act ? t : null, due_date: act ? A.addWorkdays(t, s[2]) : null}); });
+    pr[3].forEach(function (s, i) { var g = s[4] || i + 1, act = g === first, isMtu = s[1] === 'МТУ';
+      tx.put('plan_steps', {id: A.tmpId(), plan_id: pid, ord: i + 1, grp: g, name: s[0], responsible: s[1], norm_days: s[2], needs_confirm: s[3] ? 1 : 0, status: act ? 'active' : 'pending', started_at: act ? t : null, due_date: act ? A.addWorkdays(t, s[2]) : null,
+        approver: s[3] ? A.approversFor(s[1]).join(',') : null, assignee: isMtu ? (opt.mtuNames || null) : ((opt.assign || {})[s[1]] || null), assignee_mtu: isMtu ? (opt.mtu || null) : null}); });
     tx.log('Створено план дій', tt, tid, {process: pr[1]});
     return pid;
   };
@@ -166,9 +169,14 @@
     var plan = A.get('plans', s.plan_id), steps = (A.indexes.stepsByPlan[s.plan_id] || []).map(function (x) { return Object.assign({}, x); }), me = steps.filter(function (x) { return x.id === sid; })[0];
     var login = S.user && S.user.login, now = A.nowS(), t = A.today(), changed = {};
     function set(x, p) { Object.assign(x, p); changed[x.id] = x; }
-    if (action === 'done') { if (me.status !== 'active') throw new Error('Крок не в роботі'); set(me, me.needs_confirm ? {status: 'review', done_at: now, done_by: login} : {status: 'done', done_at: now, done_by: login}); }
-    else if (action === 'confirm') { if (!A.can('crm_confirm')) throw new Error('Підтверджувати кроки може менеджер ДМА'); set(me, {status: 'done', confirmed_at: now, confirmed_by: login}); }
-    else if (action === 'return') { set(me, {status: 'active', done_at: null, done_by: null, comment: 'Повернуто на доопрацювання (' + login + '): ' + (comment || '')}); comment = null; }
+    var hist = A.json(me.history, []); if (!Array.isArray(hist)) hist = [];
+    function addH(a, c) { hist.push({at: now, by: login, name: S.user && S.user.full_name, a: a, c: c || null}); set(me, {history: JSON.stringify(hist)}); }
+    if (action === 'done') { if (me.status !== 'active') throw new Error('Крок не в роботі'); set(me, me.needs_confirm ? {status: 'review', done_at: now, done_by: login, requested_at: now, approver: me.approver || A.approversFor(me.responsible).join(',')} : {status: 'done', done_at: now, done_by: login}); addH(me.needs_confirm ? 'подано на погодження' : 'виконано', comment); }
+    else if (action === 'confirm' || action === 'return') {
+      var why = A.whyCantApprove(me); if (why) throw new Error(why);
+      if (action === 'confirm') { set(me, {status: 'done', confirmed_at: now, confirmed_by: login}); addH('погоджено', comment); }
+      else { set(me, {status: 'active', done_at: null, done_by: null, comment: 'Повернуто на доопрацювання (' + login + '): ' + (comment || '')}); addH('повернуто на доопрацювання', comment); comment = null; }
+    }
     else if (action === 'skip') { if (!A.can('crm_confirm')) throw new Error('Пропускати кроки може менеджер ДМА'); set(me, {status: 'skipped', done_at: now, done_by: login}); }
     if (comment) set(me, {comment: comment});
     var planPatch = null;
@@ -184,8 +192,22 @@
     tx.log({done: 'Крок виконано', confirm: 'Крок підтверджено', 'return': 'Крок повернуто', skip: 'Крок пропущено'}[action] || action, plan.target_type, plan.target_id, {step: me.name});
     return tx.commit();
   };
+  // хто може погодити крок: роль зі списку погоджувачів (або адміністратор) і не автор подання
+  function rn(r) { return (D.ROLE_NAME_SHORT || {})[r] || r; }
+  A.approverRoles = function (s) { var roles = (s.approver || '').split(',').filter(Boolean); return roles.length ? roles : A.approversFor(s.responsible); };
+  A.approverNames = function (s) { return A.approverRoles(s).map(rn).join(', '); };
+  A.whyCantApprove = function (s) {
+    var u = S.user || {}, roles = A.approverRoles(s);
+    if (s.status !== 'review') return 'Крок не очікує погодження';
+    if (s.done_by && s.done_by === u.login) return 'Не можна погоджувати власний крок — запит надіслано: ' + A.approverNames(s);
+    if (u.role_code !== 'admin' && (roles.indexOf(u.role_code) < 0 || !A.can('crm_confirm'))) return 'Погоджує: ' + A.approverNames(s);
+    return null;
+  };
+  A.myApprovals = function () { return A.T('plan_steps').filter(function (s) { return s.status === 'review' && !A.whyCantApprove(s); }); };
   var SST = A.map(D.STEP_STATUS || [['pending', 'Очікує'], ['active', 'У роботі'], ['review', 'Очікує підтвердження'], ['done', 'Виконано'], ['skipped', 'Пропущено']]);
-  A.planBlock = function (tt, tid, editable, dept) {
+  // opt: {processes: [коди], process: типовий процес, depts: [[код, назва]], hideDept: true}
+  A.planBlock = function (tt, tid, editable, dept, opt) {
+    opt = opt || {};
     var plans = A.plansOf(tt, tid), t = A.today(), h = '';
     plans.forEach(function (p) {
       var steps = A.indexes.stepsByPlan[p.id] || [], done = steps.filter(function (s) { return s.status === 'done' || s.status === 'skipped'; }).length, grpN = {};
@@ -198,10 +220,11 @@
         var acts = '';
         if (editable && p.status === 'active' && A.can('crm_edit')) {
           if (s.status === 'active') acts += '<button class="btn sm gold" data-click="step" data-a="done" data-id="' + s.id + '">' + (s.needs_confirm ? 'На підтвердження' : 'Виконано') + '</button>';
-          if (s.status === 'review' && A.can('crm_confirm')) acts += '<button class="btn sm gold" data-click="step" data-a="confirm" data-id="' + s.id + '">Підтвердити</button><button class="btn sm plain" data-click="step" data-a="return" data-id="' + s.id + '">Повернути</button>';
+          if (s.status === 'review' && !A.whyCantApprove(s)) acts += '<button class="btn sm gold" data-click="step" data-a="confirm" data-id="' + s.id + '">Погодити</button><button class="btn sm plain" data-click="step" data-a="return" data-id="' + s.id + '">Повернути</button>';
+          else if (s.status === 'review') acts += '<span class="mini" title="' + esc(A.whyCantApprove(s)) + '">чекає погодження: ' + esc(A.approverNames(s)) + '</span>';
           if ((s.status === 'active' || s.status === 'pending') && A.can('crm_confirm')) acts += '<button class="btn sm plain" data-click="step" data-a="skip" data-id="' + s.id + '" data-confirm="Пропустити крок «' + esc(s.name) + '»?" title="Пропустити крок">⤼</button>';
         }
-        h += '<li class="' + cls + '" style="' + (par ? 'border-style:dashed' : '') + '"><span class="n">' + s.ord + '</span><div><div class="t" title="' + esc(s.name) + '">' + esc(s.name) + (par ? ' <span class="tag t-unk" title="Виконується паралельно з іншими кроками цієї групи">паралельно</span>' : '') + '</div><div class="s">' + esc(s.responsible || '') + ' · норматив ' + (s.norm_days || '—') + ' р. дн.' + (s.needs_confirm ? ' · з підтвердженням' : '') + '</div>' + (s.comment ? '<div class="s">' + esc(s.comment) + '</div>' : '') + '</div>' +
+        h += '<li class="' + cls + '" style="' + (par ? 'border-style:dashed' : '') + '"><span class="n">' + s.ord + '</span><div><div class="t" title="' + esc(s.name) + '">' + esc(s.name) + (par ? ' <span class="tag t-unk" title="Виконується паралельно з іншими кроками цієї групи">паралельно</span>' : '') + '</div><div class="s">' + esc(s.responsible || '') + (s.assignee ? ' · виконавець: ' + esc(s.assignee) : '') + ' · норматив ' + (s.norm_days || '—') + ' р. дн.' + (s.needs_confirm ? ' · погоджує: ' + esc(A.approverNames(s)) : '') + '</div>' + (s.comment ? '<div class="s">' + esc(s.comment) + '</div>' : '') + histHtml(s) + '</div>' +
           '<div class="s">' + esc(SST[s.status] || s.status) + (s.done_by ? '<br>' + esc(s.done_by) : '') + '</div><div class="s ' + (over ? 'overdue' : '') + '">' + (s.due_date ? 'до ' + A.dt(s.due_date) : '') + (s.done_at ? '<br>виконано ' + A.dt(s.done_at) : '') + '</div><div class="actions-inline">' + acts + '</div></li>';
       });
       h += '</ol>' + (editable && (A.can('crm_confirm') || A.can('delete_records')) ? '<div class="actions-inline" style="margin-top:10px">' + (p.status === 'active' && A.can('crm_confirm') ? '<button class="btn sm plain" data-click="plan-cancel" data-id="' + p.id + '" data-confirm="Скасувати план дій?">Скасувати план</button>' : '') +
@@ -210,11 +233,14 @@
     if (!plans.length) h += '<div class="panel"><div class="empty">План дій ще не створено.</div></div>';
     if (editable && A.can('crm_edit')) {
       var mg = users(function (u) { return u.dept_code && (!dept || u.dept_code === dept); });
-      h += '<form class="panel filters" data-act="plan-new" data-tt="' + tt + '" data-tid="' + tid + '" style="margin-top:12px"><b style="width:100%">Новий план дій</b>' + A.sel('process', D.PROCESSES.map(function (p) { return [p[0], p[1]]; }), null, 'Бізнес-процес', 'required') +
-        A.sel('dept', D.DMA, dept, 'Відповідальний відділ ДМА') + A.sel('manager', mg.map(function (u) { return [u.id, u.full_name + ' — ' + (N.DMA_SHORT[u.dept_code] || '')]; }), S.user && S.user.dept_code ? S.user.id : null, 'Менеджер-куратор') + '<button class="btn gold">Створити план</button></form>';
+      var procs = D.PROCESSES.filter(function (p) { return !opt.processes || opt.processes.indexOf(p[0]) >= 0; }).map(function (p) { return [p[0], p[1]]; });
+      h += '<form class="panel filters plan-new" data-act="plan-new" data-tt="' + tt + '" data-tid="' + tid + '" style="margin-top:12px"><b style="width:100%">Новий план дій</b>' + A.sel('process', procs, opt.process || null, opt.process ? null : 'Бізнес-процес', 'required') +
+        (opt.hideDept ? '<input type="hidden" name="dept" value="' + esc(dept || '') + '">' : A.sel('dept', opt.depts || D.DMA, dept, 'Відповідальний підрозділ')) + A.sel('manager', mg.map(function (u) { return [u.id, u.full_name + ' — ' + (N.DMA_SHORT[u.dept_code] || '')]; }), S.user && S.user.dept_code && (!dept || S.user.dept_code === dept) ? S.user.id : null, 'Менеджер-куратор') + '<button class="btn gold">Створити план</button></form>';
     }
     return h;
   };
+  function histHtml(s) { var hs = A.json(s.history, []); if (!Array.isArray(hs) || !hs.length) return '';
+    return '<details class="s"><summary>історія (' + hs.length + ')</summary>' + hs.map(function (x) { return '<div>' + esc((x.at || '').slice(0, 16)) + ' · ' + esc(x.name || x.by) + ': ' + esc(x.a) + (x.c ? ' — ' + esc(x.c) : '') + '</div>'; }).join('') + '</details>'; }
   A.ACT['plan-new'] = function (f, d) {
     if (!d.process) return A.toast('Оберіть бізнес-процес', 'err');
     var tt = f.dataset.tt, tid = +f.dataset.tid;
@@ -241,6 +267,14 @@
     var fields = D.CATEGORY_FIELDS[a.category] || [], det = a.details || {}, h = '';
     fields.forEach(function (f) { var k = f[0], v = det[k]; if (v === null || v === undefined || v === '') return; if (D.INTERNAL_DETAIL_KEYS.indexOf(k) >= 0 && !A.can('view_internal')) return;
       h += dd(f[1], f[2] === 'date' ? A.dt(v) : f[2] === 'num' && !isNaN(v) ? A.num(v, 2) : '<span class="' + (/vin|wallet|tx_hash|plate|isin|reg_no/.test(k) ? 'mono' : '') + '">' + esc(v) + '</span>' + (D.INTERNAL_DETAIL_KEYS.indexOf(k) >= 0 ? ' <span class="mini">· службово</span>' : ''), true); });
+    if (a.category === 'corporate') {
+      h += dd('Товариство (обʼєкт — частка в статутному капіталі)', a.company_code ? '<a href="#/company/' + esc(a.company_code) + '">' + esc(det.company_name || a.company_code) + '</a> <span class="mono mini">ЄДРПОУ ' + esc(a.company_code) + '</span>' : esc(det.foreign_company || det.company_name || '—') + (det.foreign_country ? ' <span class="tag t-unk">нерезидент · ' + esc(det.foreign_country) + (det.foreign_reg ? ' · рег. № ' + esc(det.foreign_reg) : '') + '</span>' : ''), true);
+      var fo = A.founderOf ? A.founderOf(a) : ''; if (fo) h += dd('Засновник / власник частки', det.founder_code ? '<a href="#/company/' + esc(det.founder_code) + '">' + esc(fo) + '</a>' : esc(fo), true);
+      if (det.code_fix) h += dd('Виправлення коду', '<span class="mini">' + esc(det.code_fix) + '</span>', true);
+      if (det.company_code_registry) h += dd('Код у Реєстрі (до звірки)', det.company_code_registry);
+      if (det.corp_dup) h += dd('Звірка', '<span class="tag t-lost">' + esc(det.dup_note || 'Дубль — не враховується') + '</span>', true);
+      else if (det.corp_unverified) h += dd('Звірка', '<span class="tag t-unk" title="Запису немає у вивіреному переліку аналітики корпоративних прав; частку визначено з опису">частку не звірено</span>', true);
+    }
     if (a.category === 'realestate') h += dd('Тип нерухомості (для аналітики)', A.reType(a));
     if (a.category === 'land' && det.area_calc_ha) h += dd('Площа за контуром, га', A.num(det.area_calc_ha, 4));
     if (a.category === 'crypto') { var r = A.indexes.rate[det.token]; if (r && det.units) h += dd('Вартість за поточним курсом', '<b>' + A.money(Number(det.units) * r.uah) + '</b> <span class="mini">1 ' + esc(det.token) + ' = ' + A.num(r.uah, 2) + ' ₴ · ' + esc(r.fetched_at || '') + '</span>', true); }
@@ -269,15 +303,15 @@
     if (aid) (A.indexes.vaByAsset[aid] || []).forEach(function (l) { var v = A.get('valuations', l.valuation_id); if (v && vs.indexOf(v) < 0) vs.push(v); });
     return vs.sort(function (a, b) { return (b.value_date || b.procurement_date || '').localeCompare(a.value_date || a.procurement_date || ''); });
   };
-  A.valTable = function (vs, back) {
+  A.valTable = function (vs, ro) {
     if (!vs.length) return '<div class="empty">Оцінок немає.</div>';
     return '<div class="wrap-tbl"><table><thead><tr><th>Дата оцінки</th><th class="num">Вартість</th><th>Звіт / оцінювач</th><th>Закупівля</th><th>Статус</th><th></th></tr></thead><tbody>' + vs.map(function (v) {
       var st = A.valState(v.value_date);
       return '<tr><td>' + A.dt(v.value_date) + (st === 'expired' ? '<span class="sub overdue">понад 6 міс.</span>' : st === 'valid' ? '<span class="sub" style="color:var(--ok)">чинна</span>' : '') + '</td><td class="num">' + (v.value_uah ? A.money(v.value_uah, true) : '—') + '</td>' +
         '<td class="mini">' + esc(v.report_no || '—') + (v.appraiser ? '<br>' + esc(v.appraiser) : '') + '</td><td class="mini">' + esc(v.procurement_id || '') + (v.lot_no ? ' · лот ' + esc(v.lot_no) : '') + (v.winner ? '<br>' + esc(v.winner) : '') + '</td>' +
         '<td class="mini">' + esc(v.status || '—') + (v.is_current ? ' <span class="tag t-ok">актуальна</span>' : '') + (v.target_type === 'group' ? '<br><span class="tag t-lim">групова: ' + (v.assets_count || (A.indexes.vaByVal[v.id] || []).length) + ' акт.</span>' : '') + '</td>' +
-        '<td class="nowrap"><a class="btn sm plain" href="#/valuation/' + v.id + '">Відкрити</a>' + (A.can('edit_valuations') ? ' <a class="btn sm" href="#/valuation/' + v.id + '/edit">Редагувати</a>' : '') +
-        (A.can('delete_records') || A.can('edit_valuations') ? ' <button class="btn sm danger" data-click="val-del" data-id="' + v.id + '" data-confirm="Видалити оцінку?">×</button>' : '') + '</td></tr>';
+        '<td class="nowrap"><a class="btn sm plain" href="#/valuation/' + v.id + '">Відкрити</a>' + (A.can('edit_valuations') && ro !== true ? ' <a class="btn sm" href="#/valuation/' + v.id + '/edit">Редагувати</a>' : '') +
+        ((A.can('delete_records') || A.can('edit_valuations')) && ro !== true ? ' <button class="btn sm danger" data-click="val-del" data-id="' + v.id + '" data-confirm="Видалити оцінку?">×</button>' : '') + '</td></tr>';
     }).join('') + '</tbody></table></div>';
   };
   A.CLICK['val-del'] = function (t) { var v = A.get('valuations', +t.dataset.id), tx = A.tx(); tx.del('valuations', v.id); tx.log('Видалено оцінку', 'valuation', v.id);
@@ -291,14 +325,14 @@
     if (A.mode === 'server') A.audit('Перегляд картки активу', 'asset', a.id);
     var act = (edM || edS || A.can('manage_public') || A.can('edit_legal') ? '<a class="btn gold" href="#/asset/' + a.id + '/edit">Редагувати</a>' : '') +
       (A.can('edit_decisions') ? '<a class="btn" href="' + A.link('/decision/new', {asset: a.id}) + '">+ Судове рішення</a>' : '') +
-      (A.can('edit_valuations') && !pool ? '<a class="btn" href="' + A.link('/valuation/new', {tt: 'asset', tid: a.id}) + '">+ Оцінка</a>' : '') +
+      (A.can('edit_valuations') && !pool && !red ? '<a class="btn" href="' + A.link('/valuation/new', {tt: 'asset', tid: a.id}) + '">+ Оцінка</a>' : '') +
       '<a class="btn plain" href="#" data-click="back">Назад</a>';
     var h = '';
     if (pool) h += '<div class="banner">Актив входить до пулу <a href="#/pool/' + pool.id + '"><b>' + esc(pool.code) + '</b> — ' + esc(pool.name || '') + '</a>. Оцінка, план дій та план управління ведуться в картці пулу. <a class="btn sm gold" href="#/pool/' + pool.id + '">До картки пулу →</a></div>';
     if (a.legal_note) h += '<div class="flash info">' + esc(a.legal_note) + '</div>';
     if (a.needs_review) h += '<div class="flash info">Дані щодо можливості ефективного управління визначено автоматично з інвентаризації — потребують перевірки менеджером ДМА.</div>';
     var tabs = [['t-ov', 'Огляд']].concat(fin ? [] : [['t-sc', 'Скринінг МТУ']]).concat([['t-mg', 'Ефективне управління'], ['t-lg', 'Правовий стан і рішення <span class="pill">' + (a.decisions_count || 0) + '</span>'], ['t-vl', 'Оцінки'], ['t-pl', 'План дій'], ['t-dc', 'Документи <span class="pill">' + (a.doc_count || 0) + '</span>']])
-      .concat(fin ? [] : [['t-ph', 'Фото <span class="pill">' + (a.photo_count || 0) + '</span>']]).concat(A.can('manage_public') && !fin ? [['t-pb', 'Публікація']] : []);
+      .concat(fin ? [] : [['t-ph', 'Фото <span class="pill">' + (a.photo_count || 0) + '</span>']]).concat((A.can('manage_public') || edM) && !fin ? [['t-pb', 'Публікація і досьє']] : []);
     h += '<div class="card-grid"><div><div class="tabs" data-tabbar="card">' + tabs.map(function (t) { return '<a href="#" data-tab="' + t[0] + '">' + t[1] + '</a>'; }).join('') + '</div>';
     // ---- огляд
     h += '<div class="tabpane" id="t-ov" data-group="card"><div class="panel"><h3>Загальні відомості</h3><dl class="kv">' +
@@ -345,20 +379,22 @@
         A.sel('legal_manual', A.OPT.LEGAL, a.legal_manual, 'Автоматично (за рішеннями та інвентаризацією)') + '<input name="note" value="' + esc(a.legal_manual_note || '') + '" placeholder="Підстава коригування (обов’язково при ручному стані)" style="flex:1;min-width:260px"><button class="btn gold">Зберегти</button></form>' : '') + '</div>' +
       '<div class="panel" style="margin-top:12px"><h3>Хронологія судових рішень <span>від найдавнішого до останнього</span></h3>' + decTimeline(a) + (A.can('edit_decisions') ? '<p><a class="btn" href="' + A.link('/decision/new', {asset: a.id}) + '">+ Додати судове рішення</a></p>' : '') + '</div></div>';
     // ---- оцінки
-    h += '<div class="tabpane" id="t-vl" data-group="card">' + (pool ? '<div class="flash info">Оцінка ведеться на рівні пулу ' + esc(pool.code) + '.</div>' : '') + '<div class="panel"><h3>Оцінки та закупівлі послуг з оцінки</h3>' + A.valTable(A.valRows(pool ? 'pool' : 'asset', pool ? pool.id : a.id, a.id)) +
-      (A.can('edit_valuations') ? '<p><a class="btn" href="' + A.link('/valuation/new', pool ? {tt: 'pool', tid: pool.id} : {tt: 'asset', tid: a.id}) + '">+ Нова оцінка</a></p>' : '') + '</div></div>';
+    var redMsg = function (what) { return '<div class="flash info">Актив у Червоній зоні — ' + what + ' неактивний(-і). Після зміни стану активу (і зони) розділ стане доступним; переглядати наявні дані можна.</div>'; };
+    h += '<div class="tabpane" id="t-vl" data-group="card">' + (red ? redMsg('розділ «Оцінки»') : '') + (pool ? '<div class="flash info">Оцінка ведеться на рівні пулу ' + esc(pool.code) + '.</div>' : '') + '<div class="panel' + (red ? ' is-off' : '') + '"><h3>Оцінки та закупівлі послуг з оцінки</h3>' + A.valTable(A.valRows(pool ? 'pool' : 'asset', pool ? pool.id : a.id, a.id), red) +
+      (A.can('edit_valuations') && !red ? '<p><a class="btn" href="' + A.link('/valuation/new', pool ? {tt: 'pool', tid: pool.id} : {tt: 'asset', tid: a.id}) + '">+ Нова оцінка</a></p>' : '') + '</div></div>';
     // ---- план дій
-    h += '<div class="tabpane" id="t-pl" data-group="card">' + (pool ? '<div class="flash info">План дій ведеться на рівні пулу ' + esc(pool.code) + ' — нижче показано план пулу.</div>' + A.planBlock('pool', pool.id, false, pool.dept_code) : A.planBlock('asset', a.id, edM || edS, a.dept_code)) + '</div>';
+    h += '<div class="tabpane" id="t-pl" data-group="card">' + (red ? redMsg('план дій') + '<div class="is-off">' + A.planBlock(pool ? 'pool' : 'asset', pool ? pool.id : a.id, false, a.dept_code) + '</div>' : pool ? '<div class="flash info">План дій ведеться на рівні пулу ' + esc(pool.code) + ' — нижче показано план пулу.</div>' + A.planBlock('pool', pool.id, false, pool.dept_code) : A.planBlock('asset', a.id, edM || edS, a.dept_code)) + '</div>';
     // ---- документи
     var types = fin ? ['court_scan', 'registry_extract', 'valuation_report', 'mgmt_contract', 'ident_conclusion', 'other'] : ['inspection_act', 'mgmt_plan', 'tech_passport', 'land_docs', 'registry_extract', 'valuation_report', 'mgmt_contract', 'lease_contract', 'storage_contract', 'court_scan', 'ident_conclusion', 'other'];
-    h += '<div class="tabpane" id="t-dc" data-group="card">' + A.docsBlock('asset', a.id, edM || edS, types) + (pool ? '<div style="margin-top:12px">' + A.docsBlock('pool', pool.id, false, null, 'Документи пулу ' + pool.code) + '</div>' : '') + '</div>';
+    h += '<div class="tabpane" id="t-dc" data-group="card">' + (red ? redMsg('завантаження документів') : '') + A.docsBlock('asset', a.id, (edM || edS) && !red, types) + (pool ? '<div style="margin-top:12px">' + A.docsBlock('pool', pool.id, false, null, 'Документи пулу ' + pool.code) + '</div>' : '') + '</div>';
     // ---- фото
     if (!fin) h += '<div class="tabpane" id="t-ph" data-group="card">' + A.photosBlock('asset', a.id, edM || edS, red ? 'Актив у Червоній зоні — додавання фото вимкнено. Після зміни стану активу (і зони) завантаження стане доступним.' : null) + '</div>';
     // ---- публікація
-    if (A.can('manage_public') && !fin) {
+    if ((A.can('manage_public') || edM) && !fin) {
       h += '<div class="tabpane" id="t-pb" data-group="card"><div class="panel"><h3>Публікація на сайті</h3><p class="mini">' + (a.public_candidate ? 'Актив публічний за критерієм критичності.' : 'Актив не є публічним за критерієм критичності — публікація недоступна.') + (pool && pool.publish ? ' Актив публікується у складі пулу ' + esc(pool.code) + '.' : '') + '</p><dl class="kv">' +
         dd('Стан', a.publish ? '<span class="tag t-gold">опубліковано</span>' : 'не опубліковано', true) + dd('Заголовок', a.public_title || a.name) + dd('Опис', a.public_description) + dd('Переглядів на сайті', A.num(a.public_views || 0)) + '</dl>' +
-        (a.public_candidate ? '<p><button class="btn ' + (a.publish ? 'plain' : 'gold') + '" data-click="publish" data-id="' + a.id + '" data-v="' + (a.publish ? 0 : 1) + '">' + (a.publish ? 'Зняти з публікації' : 'Опублікувати') + '</button> <a class="btn plain" href="#/asset/' + a.id + '/edit">Редагувати текст і контакти</a></p>' : '') + '</div></div>';
+        (a.public_candidate && A.can('manage_public') ? '<p><button class="btn ' + (a.publish ? 'plain' : 'gold') + '" data-click="publish" data-id="' + a.id + '" data-v="' + (a.publish ? 0 : 1) + '">' + (a.publish ? 'Зняти з публікації' : 'Опублікувати') + '</button> <a class="btn plain" href="#/asset/' + a.id + '/edit">Редагувати текст і контакти</a></p>' : '') + '</div>' +
+        (pool ? '<p class="mini">Досьє ведеться в картці пулу.</p>' : A.dossierBlock('asset', a, edM || A.can('manage_public'))) + '</div>';
     }
     h += '</div><aside class="side">' + A.sidePanels(a, pool) + '</aside></div>';
     A.render(A.shell(a.asset_no + ' · ' + (a.name || '').slice(0, 90), (N.CAT[a.category] || '') + (a.region ? ' · ' + a.region : ''), act, h), A.keep);
@@ -464,7 +500,7 @@
       F('Ідентифікатор лоту Prozorro', 'prozorro_id', a.prozorro_id, 'text', 0, 'наприклад, LLE001-UA-20261011-12345') + F('Посилання на лот Prozorro', 'prozorro_url', a.prozorro_url, 'url', 0, 'якщо порожньо — сформується за ідентифікатором', 'wide'));
     if (!fin) h += fs('Публічний сайт', pub,
       F('Заголовок на сайті', 'public_title', a.public_title, 'text', 0, 'якщо порожньо — найменування', 'wide') + F('Опис на сайті', 'public_description', a.public_description, 'textarea', 0, 'без персональних даних і службових відомостей', 'wide') +
-      F('Підрозділ для звернень', 'public_dept', a.public_dept, 'text', 0, 'напр., Відділ з організації та проведення конкурсних відборів') + F('Телефон для звернень', 'public_phone', a.public_phone) + F('E-mail для звернень', 'public_email', a.public_email, 'email') +
+      F('Підрозділ для звернень', 'public_dept', a.public_dept, 'text', 0, 'напр., Відділ з організації та проведення конкурсних відборів') + F('Телефон для звернень', 'public_phone', a.public_phone) + F('E-mail для звернень', 'public_email', a.public_email, 'email') + F('Відео YouTube', 'video_urls', a.video_urls, 'textarea', 0, 'посилання на відео YouTube, кожне з нового рядка (до 5); на сайті вбудовуються у картку лота', 'wide') +
       (a.public_candidate || isNew ? S2('Опублікувати', 'publish', [['0', 'Ні'], ['1', 'Так']], a.publish ? '1' : '0', 0, '', '', '', null) : '<div class="field mini">Публікація можлива лише для активів, публічних за критерієм критичності.</div>'));
     h += '<div class="form-actions"><a class="btn plain" href="' + (isNew ? '#/assets' : '#/asset/' + a.id) + '">Скасувати</a><button class="btn gold">' + (isNew ? 'Завести актив' : 'Зберегти зміни') + '</button></div></form>';
     return h;
@@ -477,7 +513,12 @@
   A.on(/^\/asset\/new$/, function (f) {
     if (!A.can('create_assets') && !A.can('edit_any_asset')) return A.deny();
     var a = {category: f.category || 'realestate', currency: 'UAH', legal_src: 'unknown', invest_grade: 'unknown', mgmt_possible: 'unknown', transfer_way: 'none', dept_code: S.user && S.user.dept_code, details: {}};
-    A.render(A.shell('Новий актив', 'Заведення активу з присвоєнням номера в Реєстрі вручну', '<a class="btn plain" href="#/assets">Скасувати</a>', A.assetForm(a, true)));
+    // етап 09 ідентифікації: картка активу заповнюється з запису ідентифікації, після збереження запис прив’язується, фото й документи переносяться
+    var ir = f.ident && A.get('ident_records', +f.ident);
+    if (ir && A.identPrefill) Object.assign(a, A.identPrefill(ir));
+    var form = A.assetForm(a, true);
+    if (ir) form = form.replace('data-act="asset-save"', 'data-act="asset-save" data-ident="' + ir.id + '"');
+    A.render(A.shell('Новий актив', ir ? 'Внесення до Реєстру з ідентифікації (етап 09) · ' + (ir.asset_desc || '').slice(0, 100) : 'Заведення активу з присвоєнням номера в Реєстрі вручну', '<a class="btn plain" href="' + (ir ? '#/ident/' + ir.id : '#/assets') + '">Скасувати</a>', form));
   });
   var NUMF = ['value_registry', 'lat', 'lon', 'storage_cost_month', 'expected_income_month', 'expected_income_year', 'realization_sum'];
   var INTF = ['coords_checked', 'needs_review', 'publish', 'mtu_manager_id', 'dma_manager_id'];
@@ -520,7 +561,65 @@
         public_candidate: p.public_candidate === undefined ? 1 : p.public_candidate, complexity: p.complexity || 'simple'});
     } else if (!Object.keys(p).length) { A.toast('Змін немає', 'info'); return A.go('#/asset/' + a.id); }
     var tx = A.tx(); tx.put('assets', isNew ? p : Object.assign({id: a.id}, p), isNew ? undefined : form.dataset.v);
+    var ir = isNew && form.dataset.ident && A.get('ident_records', +form.dataset.ident);
+    if (ir && A.identLinkTx) A.identLinkTx(tx, ir, p);
     tx.log(isNew ? 'Заведено новий актив' : 'Змінено картку активу', 'asset', isNew ? null : a.id, {fields: Object.keys(p).filter(function (k) { return k !== 'id'; })});
     return tx.commit().then(function (r) { form.classList.remove('dirty'); var nid = isNew ? r.id('assets', p.id) : a.id; A.toast(isNew ? 'Актив заведено' : 'Зміни збережено'); A.go('#/asset/' + nid); });
+  };
+})();
+/* v2.2: досьє активу / пулу для сайту — 8 розділів: автоматично з Реєстру + стандартизовані поля менеджера ДМА */
+(function () {
+  'use strict';
+  var A = window.A, D = window.D, N = A.N, esc = A.esc;
+  function members(tt, rec) { return tt === 'pool' ? (A.indexes.poolAssets[rec.id] || []) : [rec]; }
+  // автоматична частина (та сама логіка, що app/public_data.dossier_auto)
+  A.dossierAuto = function (tt, rec) {
+    var ms = members(tt, rec), a0 = ms[0] || rec, o = {};
+    o.scope = ms.map(function (a) { var d = a.details || {}; return [a.asset_no + ' · ' + (a.name || '').slice(0, 120), [N.CAT[a.category], A.fullAddress(a) || a.region, a.cadastral ? 'кад. № ' + a.cadastral : '', d.area_sqm ? d.area_sqm + ' м²' : d.area_ha ? d.area_ha + ' га' : '', a.company_code ? 'ЄДРПОУ ' + a.company_code : '', d.share_pct ? 'частка ' + d.share_pct + ' %' : ''].filter(Boolean).join(' · ')]; });
+    var lg = {}; ms.forEach(function (a) { var k = N.LEGAL[a.legal_status] || 'уточнюється'; lg[k] = (lg[k] || 0) + 1; });
+    o.legal = [['Правовий стан', Object.keys(lg).map(function (k) { return k + (ms.length > 1 ? ' — ' + lg[k] : ''); }).join('; ')], ['Судових рішень', ms.reduce(function (s, a) { return s + (a.decisions_count || 0); }, 0)]];
+    o.access = [['Стан використання', a0.usage_state], ['Дата огляду', a0.inspect_date ? A.dt(a0.inspect_date) : ''], ['Зберігач', ms.some(function (a) { return a.custodian_name; }) ? 'призначено' : '']];
+    o.tech = [['Технічний стан', a0.tech_state], ['Висновок огляду', (a0.inspect_conclusion || '').slice(0, 300)], ['Фото', ms.reduce(function (s, a) { return s + (a.photo_count || 0); }, 0)]];
+    o.finance = [['Оціночна вартість', rec.val_amount ? A.money(rec.val_amount) + (rec.val_date ? ' на ' + A.dt(rec.val_date) : '') : ''], ['Очікуваний дохід на рік', rec.expected_income_year ? A.money(rec.expected_income_year) : '']];
+    o.ops = ms.filter(function (a) { return a.category === 'corporate' && A.indexes.comp[a.company_code]; }).slice(0, 3).map(function (a) { return ['Види діяльності (ЄДР)', (A.indexes.comp[a.company_code].activities || '').slice(0, 200)]; });
+    o.risks = [['Ризик місцезнаходження', a0.location_risk]]; o.terms = [['Спосіб передачі', N.WAY[rec.transfer_way]], ['Можливість управління', N.POS[rec.mgmt_possible]]];
+    Object.keys(o).forEach(function (k) { if (k !== 'scope') o[k] = o[k].filter(function (x) { return x[1] !== undefined && x[1] !== null && x[1] !== '' && x[1] !== 0; }); });
+    return o;
+  };
+  A.dossierFill = function (rec) { var dz = rec.dossier || {}, n = 0, t = 0; (D.DOSSIER || []).forEach(function (s) { s[2].forEach(function (f) { t++; var v = dz[s[0] + '.' + f[0]]; if (v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length)) n++; }); }); return t ? Math.round(n * 100 / t) : 0; };
+  A.dossierBlock = function (tt, rec, editable) {
+    var dz = rec.dossier || {}, au = A.dossierAuto(tt, rec), fill = A.dossierFill(rec);
+    var h = '<div class="panel"><h3>Досьє для сайту <span>заповнено ' + fill + ' % · ' + (D.DOSSIER || []).length + ' розділів</span></h3><div class="prog"><div style="width:' + fill + '%"></div></div>' +
+      '<p class="mini">Ліворуч — відомості, що підтягуються з Реєстру автоматично; поля нижче заповнює менеджер ДМА за стандартною формою (без персональних даних). На сайті показуються лише заповнені поля.</p>' +
+      '<form data-act="dossier-save" data-tt="' + tt + '" data-id="' + rec.id + '">' +
+      (tt === 'asset' || tt === 'pool' ? '<div class="form-grid">' + A.field('ID закупівлі послуг з управління на Prozorro', 'tender_id', rec.tender_id, 'text', 0, 'UA-2026-…; посилання prozorro.gov.ua/tender/ID') + A.field('ID аукціону Prozorro.Продажі', 'prozorro_id', rec.prozorro_id, 'text', 0, 'для реалізації') + '</div>' : '');
+    (D.DOSSIER || []).forEach(function (s, i) {
+      var a = au[s[0]] || [];
+      h += '<details class="ident-sec"' + (i < 1 ? ' open' : '') + '><summary>' + (i + 1) + '. ' + esc(s[1]) + '</summary><fieldset' + (editable ? '' : ' disabled') + ' style="border:0;margin:0;padding:0;background:none">' +
+        (a.length ? '<dl class="kv auto">' + a.slice(0, 30).map(function (x) { return A.dd(x[0], x[1]); }).join('') + (a.length > 30 ? A.dd('…', 'ще ' + (a.length - 30)) : '') + '</dl>' : '') + '<div class="form-grid">';
+      s[2].forEach(function (f) {
+        var k = s[0] + '.' + f[0], v = dz[k], nm = 'ds|' + k;
+        if (f[2] === 'text') h += A.field(f[1], nm, v, 'textarea', 0, '', 'wide');
+        else if (f[2] === 'num') h += A.field(f[1], nm, v, 'text', 0, '', '', 'inputmode="decimal"');
+        else if (f[2] === 'yn') h += A.fsel(f[1], nm, D.YN, v);
+        else if (f[2] === 'sel') h += A.fsel(f[1], nm, f[3], v);
+        else if (f[2] === 'multi') h += '<div class="field wide"><label>' + esc(f[1]) + '</label><div class="checks">' + f[3].map(function (o) { return '<label class="chk"><input type="checkbox" name="' + nm + '" value="' + esc(o) + '"' + ((v || []).indexOf(o) >= 0 ? ' checked' : '') + ' style="width:auto"> ' + esc(o) + '</label>'; }).join('') + '</div></div>';
+      });
+      h += '</div></fieldset></details>';
+    });
+    if (editable) h += '<div class="form-actions"><button class="btn gold">Зберегти досьє</button></div>';
+    return h + '</form></div>';
+  };
+  A.ACT['dossier-save'] = function (form, d) {
+    var tt = form.dataset.tt, t = tt === 'pool' ? 'pools' : 'assets', rec = A.get(t, +form.dataset.id), dz = {};
+    (D.DOSSIER || []).forEach(function (s) { s[2].forEach(function (f) {
+      var k = s[0] + '.' + f[0], v = d['ds|' + k];
+      if (f[2] === 'multi') { v = v === undefined ? [] : Array.isArray(v) ? v : [v]; if (v.length) dz[k] = v; return; }
+      v = typeof v === 'string' ? v.trim() : v; if (v === '' || v === undefined || v === null) return;
+      if (f[2] === 'num') { var n = A.parseNum(v); if (n === null) throw new Error('«' + f[1] + '»: потрібне число'); v = n; }
+      dz[k] = v; }); });
+    var p = {id: rec.id, dossier: dz}; if ('tender_id' in d) p.tender_id = (d.tender_id || '').trim() || null; if ('prozorro_id' in d) p.prozorro_id = (d.prozorro_id || '').trim() || null;
+    var tx = A.tx(); tx.put(t, p, rec.updated_at); tx.log('Оновлено досьє для сайту', tt, rec.id, {fill: A.dossierFill({dossier: dz})});
+    return tx.commit().then(function () { A.toast('Досьє збережено'); A.route(true); });
   };
 })();
