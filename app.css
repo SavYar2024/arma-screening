@@ -326,3 +326,40 @@ textarea.big{min-height:140px}
 .kpi .v{overflow-wrap:anywhere}
 .rail{overflow-y:auto;scrollbar-width:thin}
 .rail .who{position:sticky;bottom:0;background:#0A0F1C}
+.kpi .v.att{color:#F5A524}
+.kpi .v.att.on{color:#FFB648;text-shadow:0 0 18px rgba(245,165,36,.35)}
+.panel.kpi:has(.v.att.on){border-color:rgba(245,165,36,.6);box-shadow:0 0 0 1px rgba(245,165,36,.35) inset}
+.is-off{opacity:.55;pointer-events:none;filter:grayscale(.4)}
+/* v2.2 ідентифікація: період (роки / місяці, у т. ч. майбутні), етапи 01–09, календар строків */
+.period .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 6px}
+.period .chip{padding:3px 10px;border-radius:12px;font-size:12px;color:var(--muted);text-decoration:none}
+.period .chip.on{border-color:var(--gold);color:var(--gold)}
+.period .chip.future{border-style:dashed}
+.stage.executor,.stage.mtu{background:rgba(53,214,232,.14);color:#7FE6F1}.stage.inspected{background:rgba(245,197,24,.14);color:#F5D35E}
+.stage.draft,.stage.agreed{background:rgba(139,123,247,.14);color:#B9AEFF}.stage.registry{background:rgba(61,214,140,.18);color:var(--ok)}
+.stage.impossible{background:rgba(240,82,78,.15);color:#FF8A86}
+table.cal tr.future td{opacity:.8;font-style:italic}table.cal tr.now td{background:rgba(245,165,36,.08)}
+.nd{display:flex;gap:6px}.nd input:first-child{flex:1;min-width:90px}.nd input[type=date]{width:150px}
+.panel.ruling{margin-bottom:12px}.ruling-form{margin:8px 0}
+fieldset legend{font-weight:600;color:var(--gold);padding:0 6px}
+@media (max-width:640px){.nd{flex-direction:column}.nd input[type=date]{width:100%}.period .chip{padding:4px 9px}}
+.checks{display:flex;flex-wrap:wrap;gap:6px 14px}.checks .chk{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--text)}
+dl.kv.auto{background:rgba(53,214,232,.05);border:1px dashed rgba(53,214,232,.25);border-radius:8px;padding:8px 10px;margin:6px 0 10px}
+/* v2.3 */
+.nbadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:#F0524E;color:#fff;font-size:11px;text-align:center;margin-left:4px}
+input[type=date],input[type=datetime-local],input[type=month]{color-scheme:dark}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=month]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:invert(1) brightness(1.6);opacity:.9;cursor:pointer}
+.card-grid{grid-template-columns:minmax(0,1fr) minmax(280px,380px)}.card-grid>*{min-width:0}.side{min-width:0;overflow-wrap:anywhere}
+.side .steps li{grid-template-columns:28px minmax(0,1fr);row-gap:4px}.side .steps li>div:nth-child(n+3){grid-column:2}
+.side form.plan-new select{width:100%}
+@media (max-width:1100px){.card-grid{grid-template-columns:1fr}}
+/* карта v2.3: підкладки, кадастр, підказки */
+.map-wrap{position:relative;overflow:hidden;touch-action:none;user-select:none}
+.map-wrap .map-tiles{position:absolute;inset:0}.map-wrap .map-tiles img{position:absolute;width:256px;height:256px;max-width:none}
+.map-wrap .map-cad img{opacity:.85}.map-wrap canvas{position:absolute;inset:0}
+.map-layers{position:absolute;left:10px;top:10px;display:flex;gap:4px;z-index:6;flex-wrap:wrap}
+.map-layers button{padding:5px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.35);background:rgba(11,18,34,.82);color:#E6ECF5;font-size:12px;cursor:pointer}
+.map-layers button.on{background:#F5C518;color:#0B1220;border-color:#F5C518;font-weight:600}
+.map-tip{position:absolute;z-index:7;max-width:260px;background:rgba(11,18,34,.92);color:#fff;font-size:12px;padding:5px 8px;border-radius:6px;pointer-events:none}
+.map-panel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.land-list{margin-top:12px}

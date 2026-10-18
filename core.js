@@ -51,7 +51,7 @@
   };
 
   // ================================================================ дані
-  var JSONCOLS = {details: 1, data: 1, perms: 1};
+  var JSONCOLS = {details: 1, data: 1, perms: 1, dossier: 1};
   A.unpack = function (p) {
     if (!p || !p.cols) return [];
     var dec = p.cols.map(function (c) { return (p.dicts && p.dicts[c]) || null; });
@@ -82,7 +82,8 @@
     I.comp = {}; A.T('companies').forEach(function (c) { I.comp[c.edrpou] = c; });
     I.rate = {}; A.T('rates').forEach(function (r) { I.rate[r.token] = r; });
     I.poolAssets = grp('assets', 'pool_id');
-    I.identByGroup = grp('ident_records', 'group_id');
+    I.identByGroup = grp('ident_records', 'group_id'); I.identByAppeal = grp('ident_records', 'appeal_id'); I.identByRuling = grp('ident_records', 'ruling_id');
+    I.rulingsByAppeal = grp('ident_rulings', 'appeal_id');
   };
 
   // ================================================================ сховище браузера (режим дзеркала)
@@ -202,9 +203,9 @@
   var tmp = -1;
   A.tmpId = function () { return tmp--; };
   var FK = {decision_assets: {decision_id: 'decisions', asset_id: 'assets'}, valuation_assets: {valuation_id: 'valuations', asset_id: 'assets'},
-    plan_steps: {plan_id: 'plans'}, assets: {pool_id: 'pools'}, ident_records: {group_id: 'ident_groups', asset_id: 'assets'},
-    ident_groups: {pool_id: 'pools'}, pools: {ident_group_id: 'ident_groups'}};
-  var TARGET = {asset: 'assets', pool: 'pools', ident_group: 'ident_groups', ident: 'ident_records', company: 'companies'};
+    plan_steps: {plan_id: 'plans'}, assets: {pool_id: 'pools'}, ident_records: {group_id: 'ident_groups', asset_id: 'assets', appeal_id: 'ident_appeals', ruling_id: 'ident_rulings'},
+    ident_rulings: {appeal_id: 'ident_appeals'}, ident_groups: {pool_id: 'pools'}, pools: {ident_group_id: 'ident_groups'}};
+  var TARGET = {asset: 'assets', pool: 'pools', ident_group: 'ident_groups', ident: 'ident_records', ident_appeal: 'ident_appeals', company: 'companies'};
   var DYN = {plans: 1, valuations: 1, file_links: 1};
   var CASCADE = {decisions: [['decision_assets', 'decision_id']], valuations: [['valuation_assets', 'valuation_id']], plans: [['plan_steps', 'plan_id']],
     assets: [['decision_assets', 'asset_id'], ['valuation_assets', 'asset_id']]};
@@ -425,7 +426,8 @@
       if (!items.length) return;
       h += '<div class="grp">' + esc(g.group) + '</div>' + items.map(function (i) {
         var on = i.match ? r.indexOf(i.match) === 0 : r === i.href;
-        return '<a href="#' + i.href + '" class="' + (on ? 'on' : '') + '" title="' + esc(i.label) + '">' + esc(i.label) + '</a>';
+        var bd = i.badge ? i.badge() : 0;
+        return '<a href="#' + i.href + '" class="' + (on ? 'on' : '') + '" title="' + esc(i.label) + '">' + esc(i.label) + (bd ? ' <span class="nbadge">' + bd + '</span>' : '') + '</a>';
       }).join('');
     });
     h += '</nav><div class="who"><b>' + esc(u.full_name || '') + '</b>' + esc(ro.name || '') + (u.mtu_code ? ' · ' + esc(N.MTU[u.mtu_code]) : u.dept_code ? ' · ' + esc(N.DMA_SHORT[u.dept_code]) : '') +
