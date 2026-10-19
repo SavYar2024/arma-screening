@@ -348,6 +348,7 @@
       (!fin && a.lat && a.lon ? dd('Координати', '<span class="mono">' + A.num(a.lat, 5) + ', ' + A.num(a.lon, 5) + '</span>' + (a.coords_checked ? ' <span class="tag t-ok">перевірено</span>' : '') + ' <a href="https://www.openstreetmap.org/?mlat=' + a.lat + '&mlon=' + a.lon + '#map=16/' + a.lat + '/' + a.lon + '" target="_blank" rel="noopener">на карті</a>', true) : '') +
       (a.prozorro_id || a.prozorro_url ? dd('Prozorro.Продажі', A.prozorroBtn(a), true) : '') + '</dl></div>';
     var dl = detailsList(a);
+    if (a.category === 'land' && (a.lat || (a.details || {}).geometry)) h += '<div class="panel" style="margin-top:12px"><h3>Ділянка на карті <span>' + ((a.details || {}).geometry ? 'контур ' + ((a.details || {}).geometry_src === 'manual' ? 'внесено вручну' : 'з бази контурів') + ((a.details || {}).area_calc_ha ? ' · ' + A.num(a.details.area_calc_ha, 4) + ' га за контуром' : '') : 'лише точка — внесіть GeoJSON контуру в «Редагувати → Адреса і координати»') + '</span></h3><div data-amap="' + a.id + '" style="height:360px"></div></div>';
     if (dl) h += '<div class="panel" style="margin-top:12px"><h3>Характеристики — ' + esc(N.CAT[a.category] || '') + '</h3><dl class="kv">' + dl + '</dl></div>';
     if (a.public_phone || a.public_email || a.public_dept) h += '<div class="panel" style="margin-top:12px"><h3>Контакти для публічного сайту</h3><dl class="kv">' + dd('Підрозділ', a.public_dept) + dd('Телефон', a.public_phone) + dd('E-mail', a.public_email) + '</dl></div>';
     h += '<div class="panel" style="margin-top:12px"><h3>Дані інвентаризації <span>первинне джерело, лише для читання</span></h3><dl class="kv">' + dd('Статус інвентаризації', a.inv_status) + dd('Тип управління', a.mgmt_type_src) +
@@ -478,7 +479,10 @@
         S2('Область', 'region', D.REGIONS, a.region) + F('Район', 'district', a.district) + F('Громада', 'hromada', a.hromada) + S2('Тип населеного пункту', 'settl_type', D.SETTLEMENT_TYPES, a.settl_type) + F('Населений пункт', 'settl_name', a.settl_name) +
         S2('Тип вулиці', 'street_type', D.STREET_TYPES, a.street_type) + F('Вулиця', 'street_name', a.street_name) + F('Будинок', 'building', a.building) + F('Корпус', 'block', a.block) + F('Квартира / приміщення', 'unit', a.unit) + F('Індекс', 'postal', a.postal) +
         F('Кадастровий номер', 'cadastral', a.cadastral, 'text', 0, '0000000000:00:000:0000') + F('Широта', 'lat', a.lat, 'text', 0, '', '', 'inputmode="decimal"') + F('Довгота', 'lon', a.lon, 'text', 0, '', '', 'inputmode="decimal"') +
-        S2('Координати перевірено', 'coords_checked', [['1', 'Так'], ['0', 'Ні']], a.coords_checked ? '1' : '0', 0, '', '', '', null));
+        S2('Координати перевірено', 'coords_checked', [['1', 'Так'], ['0', 'Ні']], a.coords_checked ? '1' : '0', 0, '', '', '', null) +
+        (a.category === 'land' ? '<div class="field wide"><label>Контур ділянки (GeoJSON)</label><textarea name="geojson" rows="4" class="mono" style="font-size:12px" placeholder=\'{"type":"Polygon","coordinates":[[[30.52,50.45],[30.53,50.45],[30.53,50.46],[30.52,50.45]]]}\'>' + esc(det.geometry ? JSON.stringify(det.geometry) : '') + '</textarea>' +
+          '<span class="hint">Polygon / MultiPolygon у WGS84 (довгота, широта) або Feature / FeatureCollection; можна <label class="linkish" style="cursor:pointer;text-decoration:underline">завантажити файл .geojson<input type="file" accept=".geojson,.json" data-geofile style="display:none"></label>. ' +
+          (det.geometry ? 'Зараз: ' + (det.geometry_src === 'manual' ? 'внесено вручну' : 'з бази контурів (land.json)') + (det.area_calc_ha ? ', площа за контуром ' + A.num(det.area_calc_ha, 4) + ' га' : '') + '. Очистіть поле, щоб видалити контур.' : 'Контуру ще немає — його покаже карта після збереження.') + ' Контур, внесений вручну, не перезаписується імпортом.</span></div>' : ''));
     }
     var cf = D.CATEGORY_FIELDS[a.category] || [];
     if (cf.length) h += fs('Характеристики — ' + (N.CAT[a.category] || ''), fin ? edM : (edM || edS), cf.map(function (f) { return detField(f, det, A.can('view_internal')); }).join(''), a.category === 'transport' ? 'VIN-код — 17 символів (латинські літери, крім I, O, Q, та цифри).' : '');
@@ -522,6 +526,32 @@
   });
   var NUMF = ['value_registry', 'lat', 'lon', 'storage_cost_month', 'expected_income_month', 'expected_income_year', 'realization_sum'];
   var INTF = ['coords_checked', 'needs_review', 'publish', 'mtu_manager_id', 'dma_manager_id'];
+  // GeoJSON контуру земельної ділянки (ручне внесення в картці)
+  A.parseGeom = function (t) {
+    var j; try { j = JSON.parse(t); } catch (e) { throw new Error('Контур: текст не є коректним JSON'); }
+    if (j && j.type === 'FeatureCollection') { var gs = (j.features || []).map(function (f) { return f && f.geometry; }).filter(function (g) { return g && /Polygon/.test(g.type); });
+      if (!gs.length) throw new Error('Контур: у FeatureCollection немає полігонів'); j = gs.length === 1 ? gs[0] : {type: 'MultiPolygon', coordinates: gs.reduce(function (acc, g) { return acc.concat(g.type === 'Polygon' ? [g.coordinates] : g.coordinates); }, [])}; }
+    else if (j && j.type === 'Feature') j = j.geometry;
+    if (!j || (j.type !== 'Polygon' && j.type !== 'MultiPolygon') || !Array.isArray(j.coordinates)) throw new Error('Контур: потрібен Polygon або MultiPolygon');
+    var bad = false; (j.type === 'Polygon' ? [j.coordinates] : j.coordinates).forEach(function (pl) { pl.forEach(function (r) { r.forEach(function (pt) { if (!(pt[0] > 20 && pt[0] < 42 && pt[1] > 43 && pt[1] < 53)) bad = true; }); }); });
+    if (bad) throw new Error('Контур: координати поза межами України або переплутано порядок (потрібно [довгота, широта] у WGS84)');
+    return {type: j.type, coordinates: j.coordinates};
+  };
+  A.geomCenter = function (g) { var pts = []; (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { pts = pts.concat(pl[0]); }); if (!pts.length) return null;
+    return [Math.round(pts.reduce(function (s, p) { return s + p[1]; }, 0) / pts.length * 1e6) / 1e6, Math.round(pts.reduce(function (s, p) { return s + p[0]; }, 0) / pts.length * 1e6) / 1e6]; };
+  A.geomArea = function (g) { var tot = 0; (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { var ring = pl[0], lat0 = ring.reduce(function (s, p) { return s + p[1]; }, 0) / ring.length, kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540, ar = 0;
+    for (var i = 0; i < ring.length; i++) { var p = ring[i], q = ring[(i + 1) % ring.length]; ar += p[0] * kx * q[1] * ky - q[0] * kx * p[1] * ky; } tot += Math.abs(ar / 2) / 10000; }); return Math.round(tot * 10000) / 10000; };
+  A.afterRender.push(function (root) {
+    var fi = root.querySelector('[data-geofile]'); if (fi && !fi.dataset.done) { fi.dataset.done = 1; fi.addEventListener('change', function () { var file = fi.files[0]; if (!file) return; var rd = new FileReader(); rd.onload = function () { var ta = root.querySelector('textarea[name=geojson]'); try { ta.value = JSON.stringify(A.parseGeom(rd.result)); A.toast('Контур завантажено — збережіть картку'); } catch (e) { A.toast(e.message, 'err'); } }; rd.readAsText(file); }); }
+    var el = root.querySelector('[data-amap]'); if (!el || el.dataset.done || !window.ArmaMap) return; el.dataset.done = 1;
+    var a = A.get('assets', +el.dataset.amap); if (!a) return; var g = (a.details || {}).geometry, polys = [], pts = [];
+    if (g && g.coordinates) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { polys.push({rings: pl, color: '#F5C518', id: a.id, label: a.cadastral || a.asset_no}); });
+    if (a.lat && a.lon) pts.push({lat: a.lat, lon: a.lon, color: '#F5C518', id: a.id, label: a.cadastral || a.asset_no, hasPoly: !!g});
+    var m = new window.ArmaMap(el, {base: 'sat', tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, cadastreOn: true}); m.setData(pts, polys);
+    var c = g ? A.geomCenter(g) : [a.lat, a.lon], bb = [90, 180, -90, -180];
+    if (g) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { pl[0].forEach(function (p) { bb = [Math.min(bb[0], p[1]), Math.min(bb[1], p[0]), Math.max(bb[2], p[1]), Math.max(bb[3], p[0])]; }); });
+    if (g) { var pad = Math.max(bb[2] - bb[0], bb[3] - bb[1]) * 0.6 + 0.0015; m.fit(bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad); } else m.fit(c[0] - 0.01, c[1] - 0.015, c[0] + 0.01, c[1] + 0.015);
+  });
   A.ACT['asset-save'] = function (form, d) {
     var isNew = !form.dataset.id, a = isNew ? {details: {}} : A.get('assets', +form.dataset.id), p = {}, det = Object.assign({}, a.details || {}), detCh = false;
     Object.keys(d).forEach(function (k) {
@@ -535,13 +565,17 @@
         if (!same(det[key], v)) { if (v === null) delete det[key]; else det[key] = v; detCh = true; }
         return;
       }
-      if (k === 'zone_manual_v') return;
+      if (k === 'zone_manual_v' || k === 'geojson') return;
       if ((k === 'owner_code' || k === 'custodian_code' || k === 'manager_code') && !A.can('view_internal') && v === '') return;
       if (NUMF.indexOf(k) >= 0 && v !== '') { var nv = A.parseNum(v); if (nv === null) throw new Error('Поле «' + k + '»: потрібне число'); v = nv; }
       if (INTF.indexOf(k) >= 0 && v !== '') v = +v;
       if (v === '') v = null;
       if (isNew || !same(a[k], v)) p[k] = v;
     });
+    if ('geojson' in d) { var gt = (d.geojson || '').trim(), had = det.geometry ? JSON.stringify(det.geometry) : '';
+      if (!gt && had) { delete det.geometry; delete det.area_calc_ha; det.geometry_src = 'manual'; detCh = true; }
+      else if (gt && gt !== had) { var g = A.parseGeom(gt); det.geometry = g; det.geometry_src = 'manual'; det.area_calc_ha = A.geomArea(g); if (!det.area_ha) det.area_ha = det.area_calc_ha; detCh = true;
+        var cen = A.geomCenter(g); if (cen && (!a.coords_checked || !a.lat) && !('lat' in p && p.lat)) { p.lat = cen[0]; p.lon = cen[1]; } } }
     if (detCh) p.details = det;
     if ('proposal' in d || 'zone_manual_v' in d) {
       var zm = d.zone_manual_v || '', z = zm || A.zoneForStatus(d.proposal !== undefined ? d.proposal : a.proposal) || a.zone || 'Сіра зона';

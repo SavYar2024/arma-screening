@@ -145,3 +145,10 @@ html.hc a{color:#0033cc;text-decoration:underline}html.hc .hero{background:#0F2F
 .pv-pages{overflow:auto;flex:1;padding:10px;display:flex;flex-direction:column;align-items:center;gap:12px}.pv-pages img{max-width:min(100%,980px);background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4);pointer-events:none}
 body.pv-open{overflow:hidden}
 @media print{body.pv-open *{display:none!important}body.pv-open:after{content:"Друк документів заборонено";display:block}}
+/* v2.4: кнопка карти земель і дашборду */
+.map-cta{display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:18px;margin:0 0 16px;text-decoration:none;color:inherit;border:1px solid var(--line);background:linear-gradient(120deg,rgba(31,79,216,.10),rgba(20,164,99,.10));transition:transform .15s,box-shadow .15s}
+.map-cta:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(31,79,216,.15)}
+.map-cta .mc-ic{font-size:34px;line-height:1}.map-cta b{display:block;font-size:18px}.map-cta small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.map-cta .mc-go{margin-left:auto;white-space:nowrap;background:#1F4FD8;color:#fff;padding:10px 16px;border-radius:12px;font-weight:600}
+@media (max-width:640px){.map-cta{flex-wrap:wrap}.map-cta .mc-go{margin-left:0;width:100%;text-align:center}}
+.a11y [data-a11y-fs]{align-self:center;display:inline-block}

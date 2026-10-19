@@ -16,7 +16,7 @@
   function dealBadge(it) { var d = DN[dealOf(it)]; return d ? '<span class="deal ' + d[3] + '">' + esc(d[1]) + '</span>' : '<span class="deal prep">Готується до передачі</span>'; }
   // доступність: розмір тексту і контраст (зберігаються в браузері)
   var A11Y = (function () { try { return JSON.parse(localStorage.getItem('arma-a11y') || '{}'); } catch (e) { return {}; } })();
-  function applyA11y() { document.documentElement.style.fontSize = (A11Y.fs || 100) + '%'; document.documentElement.classList.toggle('hc', !!A11Y.hc); try { localStorage.setItem('arma-a11y', JSON.stringify(A11Y)); } catch (e) {} }
+  function applyA11y() { var z = (A11Y.fs || 100) / 100; document.documentElement.style.fontSize = ''; if (document.body) { document.body.style.zoom = z === 1 ? '' : String(z); } var fsl = document.querySelector('[data-a11y-fs]'); if (fsl) fsl.textContent = (A11Y.fs || 100) + '%'; document.documentElement.classList.toggle('hc', !!A11Y.hc); try { localStorage.setItem('arma-a11y', JSON.stringify(A11Y)); } catch (e) {} }
   applyA11y();
   var REGIONS = (window.D && window.D.REGIONS) || [];
   var DATA = null, ME = {user: null, likes: [], favorites: [], requests: []}, MEDIA = {thumbs: null, views: null};
@@ -36,7 +36,7 @@
     me: function () { return fetch(API + '/api/public/me', {credentials: 'same-origin'}).then(function (r) { return r.json(); }); },
     post: function (p, b) { return fetch(API + '/api/public/' + p, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF': CSRF}, body: JSON.stringify(b || {})}).then(function (r) { return r.json().catch(function () { return {ok: false, error: 'Помилка ' + r.status}; }); }); },
     photo: function (id, v) { return API + '/api/public/photo/' + id + '/' + v; },
-    doc: function (id) { return API + '/api/public/doc/' + id; }
+    doc: function () { return null; }
   } : {
     catalog: function () { return fetch(ST + 'data-public.json', {cache: 'no-cache'}).then(function (r) { if (!r.ok) throw new Error('data-public.json'); return r.json(); }); },
     me: function () { var s = LS.get(); return Promise.resolve({user: s.user || null, likes: s.likes || [], favorites: s.user ? s.favorites || [] : [], requests: s.user ? s.requests || [] : []}); },
@@ -66,11 +66,10 @@
     return (MODE === 'static' ? '<div class="mirror-note">Дзеркало публічного сайту для перевірки. Дані знеособлено; реєстрація, обране і запити зберігаються лише у вашому браузері.' + (DATA && DATA.demo ? ' Лоти — демонстраційна вибірка з активів, публічних за критерієм (на робочому сайті показуються лише опубліковані адміністратором).' : '') + '</div>' : '') +
       '<header class="top"><div class="wrap"><a class="logo" href="#/"><img src="' + ST + 'logo.png" alt="АРМА"><span>Активи АРМА<small>Національне агентство з питань виявлення, розшуку та управління активами</small></span></a>' +
       '<form class="top-search" data-f="search"><input name="q" value="' + esc(f.q || '') + '" placeholder="Пошук: офіс Київ, майновий комплекс, земля…" aria-label="Пошук"><button>Знайти</button></form><div class="top-act">' +
-      '<span class="a11y" role="group" aria-label="Доступність"><button class="pbtn sm" data-a11y="-" title="Менший текст">A−</button><button class="pbtn sm" data-a11y="+" title="Більший текст">A+</button><button class="pbtn sm" data-a11y="hc" title="Висока контрастність" aria-label="Висока контрастність">🌓</button></span>' +
+      '<span class="a11y" role="group" aria-label="Доступність"><button class="pbtn sm" data-a11y="-" title="Менший текст">A−</button><button class="pbtn sm" data-a11y="+" title="Більший текст">A+</button><span class="mini" data-a11y-fs style="min-width:34px;text-align:center;font-size:12px;opacity:.7">' + (A11Y.fs || 100) + '%</span><button class="pbtn sm" data-a11y="hc" title="Висока контрастність" aria-label="Висока контрастність">🌓</button></span>' +
       '<a class="pbtn sm" href="#/cabinet?tab=fav" title="Обране">♥ <span class="cnt"' + (favN ? '' : ' style="display:none"') + '>' + favN + '</span></a>' +
       (u ? '<a class="pbtn sm" href="#/cabinet">👤 ' + esc((u.name || u.email).split(' ')[0]) + '</a>' : '<a class="pbtn sm main" href="#/login">Увійти</a>') + '</div></div></header>' +
       '<nav class="cats"><div class="wrap"><a href="#/" class="' + (!cat && /^#?\/?$/.test(location.hash.split('?')[0].replace('#', '')) ? 'on' : '') + '">Головна</a>' + CATS.map(function (c) { return '<a href="' + link('/search', {cat: c[0]}) + '" class="' + (cat === c[0] ? 'on' : '') + '">' + c[2] + ' ' + esc(c[1]) + '</a>'; }).join('') +
-      '<a href="#/map" class="' + (/^#\/map/.test(location.hash) ? 'on' : '') + '">🗺 Карта земель</a>' + pages().map(function (p) { return '<a href="#/page/' + esc(p.slug) + '" class="' + (location.hash.indexOf('#/page/' + p.slug) === 0 ? 'on' : '') + '">📊 ' + esc(p.title) + '</a>'; }).join('') +
       '<a href="#/feedback">Зворотний зв’язок</a></div></nav><main>' + content + '</main>' +
       '<footer><div class="wrap"><div><b>Національне агентство з питань виявлення, розшуку та управління активами, одержаними від корупційних та інших злочинів (АРМА)</b><br>Каталог активів, переданих в управління АРМА' + (DATA && DATA.built ? ' · дані на ' + esc(DATA.built) : '') + '</div>' +
       '<div><a href="' + esc(setting('public_contacts_url', 'https://arma.gov.ua/contacts')) + '" target="_blank" rel="noopener">Контакти АРМА</a><br><a href="' + esc(setting('public_privacy_url', 'https://arma.gov.ua/page/obrobka-personalnih-danih-subektiv-dani-yakih-obroblyayutsya-v-arma')) + '" target="_blank" rel="noopener">Обробка персональних даних</a><br><a href="#/feedback">Форма зворотного зв’язку</a></div></div></footer>';
@@ -124,6 +123,7 @@
     if (!items.length) h += '<div class="empty-p">Наразі опублікованих лотів немає. Загляньте пізніше.</div>';
     else h += '<section class="blk"><h2>Нові лоти <small><a href="' + link('/search', {sort: 'new'}) + '">усі →</a></small></h2><div class="cards">' + fresh.map(card).join('') + '</div></section>' +
       (pop.some(function (x) { return x.views || x.likes; }) ? '<section class="blk"><h2>Найпопулярніші <small><a href="' + link('/search', {sort: 'popular'}) + '">усі →</a></small></h2><div class="cards">' + pop.map(card).join('') + '</div></section>' : '');
+    if (items.length && dashOn()) h += '<section class="blk"><a class="map-cta glass" href="#/structure"><span class="mc-ic">📊</span><span><b>Структура активів на сайті</b><small>розподіл лотів за типом угоди, видом активу, областю, складністю і вартістю; інвестиційно привабливі об’єкти</small></span><span class="mc-go">Переглянути →</span></a></section>';
     var ag = DATA.agg || {};
     if (ag.money || ag.crypto) {
       h += '<section class="blk"><h2>Фінансові активи в управлінні АРМА <small>узагальнені показники</small></h2><div class="agg">';
@@ -151,6 +151,7 @@
       '<label>Площа від, м²<input name="amin" value="' + esc(f.amin || '') + '" inputmode="numeric"></label>' +
       '<label class="ck"><input type="checkbox" name="ctrl" value="1"' + (f.ctrl ? ' checked' : '') + '> контрольна частка (≥ 50 %)</label><label class="ck"><input type="checkbox" name="ph" value="1"' + (f.ph ? ' checked' : '') + '> з фото</label><label class="ck"><input type="checkbox" name="pz" value="1"' + (f.pz ? ' checked' : '') + '> оголошено на Prozorro</label></div></details>' +
       '<button class="pbtn main">Показати</button><a class="pbtn" href="' + (f.fav ? '#/search?fav=1' : '#/search') + '">Скинути</a></form></div>' +
+      (f.cat === 'land' ? (function () { var ng = (DATA.items || []).filter(function (it) { return (it.geo || []).length; }).length; return ng ? '<a class="map-cta glass" href="' + link('/map', {region: f.region, deal: f.deal && f.deal !== 'prep' ? f.deal : ''}) + '"><span class="mc-ic">🗺</span><span><b>Карта земельних ділянок</b><small>' + num(ng) + ' лотів на карті · контури ділянок, супутник, шар Публічної кадастрової карти · вибір області</small></span><span class="mc-go">Відкрити карту →</span></a>' : ''; })() : '') +
       '<div class="list-head"><b>' + (f.q ? 'За запитом «' + esc(f.q) + '»: ' : '') + num(l.length) + ' лотів</b>' + (f.deal && DN[f.deal] ? '<span class="hint">' + esc(DN[f.deal][2]) + '</span>' : '') + '</div>' +
       (rows.length ? '<div class="cards">' + rows.map(card).join('') + '</div>' : '<div class="empty-p">' + (f.fav ? 'В обраному поки немає лотів. Натискайте ♡ на картках.' : 'За умовами пошуку лотів не знайдено. Спробуйте змінити фільтри.') + '</div>');
     if (pages > 1) { h += '<div class="pager-p">'; for (var i = Math.max(1, page - 4); i <= Math.min(pages, page + 4); i++) h += i === page ? '<span>' + i + '</span>' : '<a href="' + link('/search', Object.assign({}, f, {page: i})) + '">' + i + '</a>'; h += '</div>'; }
@@ -193,7 +194,7 @@
   function dval(v) { if (Array.isArray(v)) return v.map(esc).join(', '); if (v === 'yes') return 'так'; if (v === 'no') return 'ні'; if (v === 'unknown') return 'невідомо'; if (typeof v === 'number') return num(v, v % 1 ? 2 : 0); return esc(v); }
   // досьє лота: 8 розділів — автоматичні відомості з Реєстру + стандартизовані поля, заповнені менеджером ДМА
   function dossier(it) {
-    var au = it.auto || {}, man = it.dossier || {}, out = '', num = 0;
+    var au = it.auto || {}, man = it.dossier || {}, out = '', secN = 0;
     DOS.forEach(function (sec, i) {
       var rows = '', a = au[sec[0]] || [];
       if (sec[0] === 'scope') {
@@ -202,8 +203,8 @@
       var mrows = '';
       sec[2].forEach(function (fd) { var v = man[sec[0] + '.' + fd[0]]; if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return; mrows += '<div>' + esc(fd[1]) + '</div><div' + (fd[2] === 'text' ? ' class="pre"' : '') + '>' + dval(v) + '</div>'; });
       if (!rows && !mrows) return;
-      num++;
-      out += '<details class="dos"' + (num < 3 ? ' open' : '') + '><summary><span class="n">' + num + '</span>' + esc(sec[1]) + '</summary>' + (sec[0] === 'scope' ? rows + (mrows ? '<div class="props">' + mrows + '</div>' : '') : '<div class="props">' + rows + mrows + '</div>') + '</details>';
+      secN++;
+      out += '<details class="dos"' + (secN < 3 ? ' open' : '') + '><summary><span class="n">' + secN + '</span>' + esc(sec[1]) + '</summary>' + (sec[0] === 'scope' ? rows + (mrows ? '<div class="props">' + mrows + '</div>' : '') : '<div class="props">' + rows + mrows + '</div>') + '</details>';
     });
     return out ? '<div class="box"><h3>Досьє активу</h3>' + out + '</div>' : '';
   }
@@ -229,7 +230,7 @@
   function landMap(f) {
     var lands = (DATA.items || []).filter(function (it) { return (it.geo || []).length; });
     var regs = {}; lands.forEach(function (it) { if (it.region) regs[it.region] = (regs[it.region] || 0) + 1; });
-    var h = '<div class="wrap"><div class="crumbs"><a href="#/">Головна</a> › Карта земельних ділянок</div><div class="fbar glass"><div class="frow"><b>Карта земель</b>' +
+    var h = '<div class="wrap"><div class="crumbs"><a href="#/">Головна</a> › <a href="#/search?cat=land">Земельні ділянки</a> › Карта</div><div class="fbar glass"><div class="frow"><b>Карта земель</b>' +
       '<select data-lmreg aria-label="Область"><option value="">Уся Україна (' + lands.length + ')</option>' + Object.keys(regs).sort().map(function (r) { return '<option' + (f.region === r ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>' +
       '<select data-lmdeal aria-label="Тип угоди"><option value="">Будь-яка угода</option>' + DEALS.map(function (d) { return '<option value="' + d[0] + '"' + (f.deal === d[0] ? ' selected' : '') + '>' + esc(d[1]) + '</option>'; }).join('') + '</select>' +
       '<span class="hint">клік на ділянці — картка лота; «Кадастр» — шар Публічної кадастрової карти</span></div></div><div class="box"><div data-pmap="land"></div><div class="map-legend-p">' + DEALS.map(function (d) { return '<span><i class="lg ' + d[3] + '"></i>' + esc(d[1]) + '</span>'; }).join('') + '</div></div><div data-lmlist></div></div>';
@@ -242,27 +243,29 @@
     document.querySelectorAll('[data-lmreg],[data-lmdeal]').forEach(function (x) { x.addEventListener('change', function () { upd(true); }); });
     upd(true);
   }
-  // сторінки-дашборди (налаштовує адміністратор сайту)
-  function pages() { var p = []; try { p = JSON.parse(setting('public_pages', '[]')); } catch (e) { p = []; } return (Array.isArray(p) ? p : []).filter(function (x) { return x && x.enabled !== false && x.slug; }).sort(function (a, b) { return (a.order || 0) - (b.order || 0); }); }
+  // сторінка-дашборд «Структура активів на сайті» (одна; вмикається / вимикається в налаштуваннях сайту, як фінансові показники)
+  function dashOn() { return setting('public_show_dashboard', '1') !== '0'; }
   function bars(rows, total, linkFn) {
     var max = Math.max.apply(null, rows.map(function (r) { return r[1]; }).concat([1]));
-    return '<div class="pbars">' + rows.map(function (r) { return '<a class="pbar" href="' + (linkFn ? linkFn(r[2] || r[0]) : '#') + '"><span>' + esc(r[0]) + '</span><i style="width:' + (r[1] * 100 / max).toFixed(1) + '%"></i><b>' + num(r[1]) + (total ? ' · ' + Math.round(r[1] * 100 / total) + '%' : '') + '</b></a>'; }).join('') + '</div>';
+    return '<div class="pbars">' + rows.map(function (r) { return '<a class="pbar" href="' + (linkFn ? linkFn(r[2] || r[0]) : '#/structure') + '"><span>' + esc(r[0]) + '</span><i style="width:' + (r[1] * 100 / max).toFixed(1) + '%"></i><b>' + num(r[1]) + (total ? ' · ' + Math.round(r[1] * 100 / total) + '%' : '') + '</b></a>'; }).join('') + '</div>';
   }
   function group(items, fn, names) { var c = {}; items.forEach(function (it) { var k = fn(it) || '—'; c[k] = (c[k] || 0) + 1; }); return Object.keys(c).map(function (k) { return [names && names[k] ? names[k] : k, c[k], k]; }).sort(function (a, b) { return b[1] - a[1]; }); }
-  function dashPage(slug) {
-    var pg = pages().filter(function (p) { return p.slug === slug; })[0]; if (!pg) return home();
-    var fl = pg.filter || {}, items = (DATA.items || []).filter(function (it) { return (!fl.deal || dealOf(it) === fl.deal) && (!fl.cat || catOf(it) === fl.cat) && (!fl.cx || it.complexity === fl.cx) && (!fl.attractive || it.attractive); });
+  function dashPage(f) {
+    if (!dashOn()) return home();
+    var all = DATA.items || [], items = all.filter(function (it) { return (!f.deal || (f.deal === 'prep' ? !dealOf(it) : dealOf(it) === f.deal)) && (!f.inv || it.attractive); });
     var val = items.reduce(function (s, it) { return s + (it.price || 0); }, 0), area = items.reduce(function (s, it) { return s + (it.area_sqm || 0); }, 0), ha = items.reduce(function (s, it) { return s + (it.area_ha || 0); }, 0);
-    var cn = {}, dn = {}; CATS.forEach(function (c) { cn[c[0]] = c[1]; }); DEALS.forEach(function (d) { dn[d[0]] = d[1]; }); dn['—'] = 'Готуються';
-    var L = function (k, v) { return function (x) { var o = {}; o[k] = x === '—' ? '' : x; if (fl.deal && k !== 'deal') o.deal = fl.deal; return link('/search', o); }; };
-    var h = '<div class="wrap"><div class="crumbs"><a href="#/">Головна</a> › ' + esc(pg.title) + '</div><section class="blk"><h1 class="ptitle">' + esc(pg.title) + '</h1>' + (pg.intro ? '<p class="pintro">' + esc(pg.intro) + '</p>' : '') +
-      '<div class="dash-kpi">' + [['Лотів', num(items.length)], ['Оціночна вартість', money(val) || '—'], ['Площа будівель', area ? num(area) + ' м²' : '—'], ['Земельних ділянок', ha ? num(ha, 1) + ' га' : '—'], ['Складних активів', num(items.filter(function (i) { return i.complexity === 'complex'; }).length)]].map(function (k) { return '<div class="glass"><b>' + k[1] + '</b><span>' + k[0] + '</span></div>'; }).join('') + '</div>' +
-      '<div class="dash-grid"><div class="box"><h3>Тип угоди</h3>' + bars(group(items, function (i) { return dealOf(i) || '—'; }, dn), items.length, L('deal')) + '</div>' +
-      '<div class="box"><h3>Тип активу</h3>' + bars(group(items, catOf, cn), items.length, L('cat')) + '</div>' +
-      '<div class="box"><h3>Області</h3>' + bars(group(items, function (i) { return i.region || 'не вказано'; }).slice(0, 12), items.length, L('region')) + '</div>' +
+    var cn = {}, dn = {prep: 'Готуються'}; CATS.forEach(function (c) { cn[c[0]] = c[1]; }); DEALS.forEach(function (d) { dn[d[0]] = d[1]; });
+    var L = function (k) { return function (x) { var o = {}; o[k] = x === '—' || x === 'не вказано' ? '' : x; if (f.deal && k !== 'deal' && f.deal !== 'prep') o.deal = f.deal; return link('/search', o); }; };
+    var chip = function (k, v, label) { var o = Object.assign({}, f); o[k] = v; return '<a class="fchip' + ((f[k] || '') === v ? ' on' : '') + '" href="' + link('/structure', o) + '">' + esc(label) + '</a>'; };
+    var h = '<div class="wrap"><div class="crumbs"><a href="#/">Головна</a> › Структура активів</div><section class="blk"><h1 class="ptitle">Структура активів на сайті</h1><p class="pintro">Усі опубліковані лоти АРМА: тип угоди, вид активу, області, складність і вартість. Клік на рядку — перелік відповідних лотів.</p>' +
+      '<div class="fbar glass"><div class="frow">' + chip('deal', '', 'Усі угоди') + DEALS.map(function (d) { return chip('deal', d[0], d[1]); }).join('') + chip('deal', 'prep', 'Готуються') + '<span class="sep"></span>' + chip('inv', '', 'Усі об’єкти') + chip('inv', '1', 'Інвестиційно привабливі') + '</div></div>' +
+      '<div class="dash-kpi">' + [['Лотів', num(items.length)], ['Оціночна вартість', money(val) || '—'], ['Площа будівель', area ? num(area) + ' м²' : '—'], ['Земельні ділянки', ha ? num(ha, 1) + ' га' : '—'], ['Складних активів', num(items.filter(function (i) { return i.complexity === 'complex'; }).length)], ['Інвестиційно привабливих', num(items.filter(function (i) { return i.attractive; }).length)]].map(function (k) { return '<div class="glass"><b>' + k[1] + '</b><span>' + k[0] + '</span></div>'; }).join('') + '</div>' +
+      (items.length ? '<div class="dash-grid"><div class="box"><h3>Тип угоди</h3>' + bars(group(items, function (i) { return dealOf(i) || 'prep'; }, dn), items.length, L('deal')) + '</div>' +
+      '<div class="box"><h3>Вид активу</h3>' + bars(group(items, catOf, cn), items.length, L('cat')) + '</div>' +
+      '<div class="box"><h3>Області <small>топ-12</small></h3>' + bars(group(items, function (i) { return i.region || 'не вказано'; }).slice(0, 12), items.length, L('region')) + '</div>' +
       '<div class="box"><h3>Складність</h3>' + bars(group(items, function (i) { return i.complexity; }, {complex: 'Складні', simple: 'Прості'}), items.length, L('cx')) + '</div>' +
-      '<div class="box"><h3>Вартість лотів</h3>' + bars(group(items, function (i) { var p = i.price || 0; return !p ? 'не визначено' : p < 1e6 ? 'до 1 млн ₴' : p < 1e7 ? '1–10 млн ₴' : p < 1e8 ? '10–100 млн ₴' : 'понад 100 млн ₴'; }), items.length) + '</div></div>' +
-      '<h2>Лоти</h2><div class="cards">' + items.slice(0, 24).map(card).join('') + '</div></section></div>';
+      '<div class="box"><h3>Вартість лотів</h3>' + bars(group(items, function (i) { var p = i.price || 0; return !p ? 'ще не визначено' : p < 1e6 ? 'до 1 млн ₴' : p < 1e7 ? '1–10 млн ₴' : p < 1e8 ? '10–100 млн ₴' : 'понад 100 млн ₴'; }), items.length) + '</div></div>' +
+      '<p><a class="pbtn main" href="' + link('/search', {deal: f.deal && f.deal !== 'prep' ? f.deal : ''}) + '">Перейти до каталогу лотів →</a></p>' : '<div class="empty-p">Немає лотів за умовами.</div>') + '</section></div>';
     render(h);
   }
   // захищений перегляд документа: сторінки-зображення з водяними знаками, без завантаження, копіювання і друку
@@ -303,7 +306,9 @@
     if (tab === 'fav') h += favs.length ? '<div class="cards" style="margin-top:12px">' + favs.map(card).join('') + '</div>' : '<div class="empty-p">В обраному поки немає лотів. Натискайте ♡ на картках лотів.</div>';
     else h += reqs.length ? '<div class="box" style="margin-top:12px">' + reqs.map(function (r) { var it = find(r.item_type, r.item_id);
       return '<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div style="display:flex;gap:10px;justify-content:space-between"><a href="#/lot/' + r.item_type + '/' + r.item_id + '">' + esc(it ? it.title : 'Лот ' + r.item_id) + '</a><span class="req-st ' + esc(r.status) + '">' + esc({new: 'на розгляді', approved: 'погоджено', rejected: 'відхилено'}[r.status] || r.status) + '</span></div>' +
-        '<div style="font-size:13px;color:var(--muted)">' + esc(r.created_at || '') + (r.message ? ' · ' + esc(r.message) : '') + (r.admin_note ? ' · відповідь: ' + esc(r.admin_note) : '') + '</div>' + (r.status === 'approved' && it && (it.docs || []).length ? '<div style="margin-top:6px">' + it.docs.map(function (d) { var u = src.doc(d.id); return u ? '<a class="pbtn sm" href="' + esc(u) + '" target="_blank" rel="noopener">📄 ' + esc(d.name) + '</a> ' : ''; }).join('') + '</div>' : '') + '</div>'; }).join('') + '</div>' : '<div class="empty-p">Запитів ще немає. Запросити документи можна на сторінці лота.</div>';
+        '<div style="font-size:13px;color:var(--muted)">' + esc(r.created_at || '') + (r.message ? ' · ' + esc(r.message) : '') + (r.admin_note ? ' · відповідь: ' + esc(r.admin_note) : '') + '</div>' + (r.status === 'approved' && it && (it.docs || []).length ? (function () { var exp = r.access_until && r.access_until.slice(0, 10) < new Date().toISOString().slice(0, 10);
+          return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">' + (exp ? '<span style="color:var(--muted);font-size:13px">Строк ознайомлення завершився ' + esc(dt(r.access_until)) + '. Подайте новий запит на сторінці лота.</span>' : MODE !== 'server' ? '<span style="color:var(--muted);font-size:13px">Перегляд документів — на робочому сайті</span>' :
+            it.docs.map(function (d) { return '<button class="pbtn sm" data-view="' + d.id + '">📄 ' + esc(d.name) + '</button>'; }).join('') + (r.access_until ? '<span style="color:var(--muted);font-size:13px">перегляд до ' + esc(dt(r.access_until)) + ', лише у переглядачі сайту</span>' : '')) + '</div>'; })() : '') + '</div>'; }).join('') + '</div>' : '<div class="empty-p">Запитів ще немає. Запросити документи можна на сторінці лота.</div>';
     render(h + '</section></div>');
   }
   function route() {
@@ -315,7 +320,7 @@
     if (path === '/cabinet') return cabinet(f);
     if (path === '/feedback') return feedback(f);
     if (path === '/map') return landMap(f);
-    if ((m = path.match(/^\/page\/([\w-]+)$/))) return dashPage(m[1]);
+    if (path === '/structure' || /^\/page\//.test(path)) return dashPage(f);
     home();
   }
 

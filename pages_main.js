@@ -291,7 +291,7 @@
       '<input data-mf name="mq" value="' + esc(f.mq || '') + '" placeholder="Кадастровий № або назва" style="min-width:200px">' +
       '<span class="mini" data-mstat></span>' + (A.can('system') || A.can('edit_any_asset') ? '<label class="btn plain" style="margin-left:auto">Завантажити контури (GeoJSON)<input type="file" accept=".geojson,.json" data-geojson style="display:none"></label>' : '') + '</div>' +
       '<div data-map></div><p class="mini" style="margin-top:6px">Колір — зона активу; при малому масштабі ділянки групуються (клік — наблизити). Підкладки: «Схема», «Супутник», OSM; «Кадастр» — шар Публічної кадастрової карти (з масштабу 12, якщо сервер Держгеокадастру доступний з вашої мережі). ' +
-      'Точки — координати з файлу кадастрових номерів (' + A.num(withPt) + ' ділянок); контури — з GeoJSON (' + A.num(withPoly) + '): кнопка «Завантажити контури» приймає FeatureCollection, де у властивостях є кадастровий номер — контур прив’язується до ділянки з таким номером, площа рахується автоматично.</p>' +
+      'На карті: точок ' + A.num(withPt) + ', контурів ' + A.num(withPoly) + ' з ' + A.num(all.length) + ' ділянок. Контури — з бази контурів за кадастровими номерами (land_polygons, завантажено при оновленні 2.4) і внесені вручну. Додати контур окремій ділянці: картка ділянки → «Редагувати» → «Адреса і координати» → «Контур ділянки (GeoJSON)» (текст або файл .geojson). Масово — кнопка «Завантажити контури» (FeatureCollection з кадастровим номером у властивостях). Контури, внесені вручну, імпорт не перезаписує.</p>' +
       '<div class="land-list" data-landlist></div></div>';
   };
   A.afterRender.push(function (root) {
