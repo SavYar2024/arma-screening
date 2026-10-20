@@ -348,7 +348,7 @@
       (!fin && a.lat && a.lon ? dd('Координати', '<span class="mono">' + A.num(a.lat, 5) + ', ' + A.num(a.lon, 5) + '</span>' + (a.coords_checked ? ' <span class="tag t-ok">перевірено</span>' : '') + ' <a href="https://www.openstreetmap.org/?mlat=' + a.lat + '&mlon=' + a.lon + '#map=16/' + a.lat + '/' + a.lon + '" target="_blank" rel="noopener">на карті</a>', true) : '') +
       (a.prozorro_id || a.prozorro_url ? dd('Prozorro.Продажі', A.prozorroBtn(a), true) : '') + '</dl></div>';
     var dl = detailsList(a);
-    if (a.category === 'land' && (a.lat || (a.details || {}).geometry)) h += '<div class="panel" style="margin-top:12px"><h3>Ділянка на карті <span>' + ((a.details || {}).geometry ? 'контур ' + ((a.details || {}).geometry_src === 'manual' ? 'внесено вручну' : 'з бази контурів') + ((a.details || {}).area_calc_ha ? ' · ' + A.num(a.details.area_calc_ha, 4) + ' га за контуром' : '') : 'лише точка — внесіть GeoJSON контуру в «Редагувати → Адреса і координати»') + '</span></h3><div data-amap="' + a.id + '" style="height:360px"></div></div>';
+    if (a.category === 'land' && (a.lat || (a.details || {}).geometry)) h += '<div class="panel" style="margin-top:12px"><h3>Ділянка на карті <span>' + ((a.details || {}).geometry ? 'контур ' + ((a.details || {}).geometry_src === 'manual' ? 'внесено вручну' : 'з бази контурів') + ((a.details || {}).area_calc_ha ? ' · ' + A.num(a.details.area_calc_ha, 4) + ' га за контуром' : '') : 'лише точка — внесіть GeoJSON контуру в «Редагувати → Адреса і координати»') + '</span></h3><div data-amap="' + a.id + '" style="height:460px"></div></div>';
     if (dl) h += '<div class="panel" style="margin-top:12px"><h3>Характеристики — ' + esc(N.CAT[a.category] || '') + '</h3><dl class="kv">' + dl + '</dl></div>';
     if (a.public_phone || a.public_email || a.public_dept) h += '<div class="panel" style="margin-top:12px"><h3>Контакти для публічного сайту</h3><dl class="kv">' + dd('Підрозділ', a.public_dept) + dd('Телефон', a.public_phone) + dd('E-mail', a.public_email) + '</dl></div>';
     h += '<div class="panel" style="margin-top:12px"><h3>Дані інвентаризації <span>первинне джерело, лише для читання</span></h3><dl class="kv">' + dd('Статус інвентаризації', a.inv_status) + dd('Тип управління', a.mgmt_type_src) +
@@ -545,12 +545,11 @@
     var fi = root.querySelector('[data-geofile]'); if (fi && !fi.dataset.done) { fi.dataset.done = 1; fi.addEventListener('change', function () { var file = fi.files[0]; if (!file) return; var rd = new FileReader(); rd.onload = function () { var ta = root.querySelector('textarea[name=geojson]'); try { ta.value = JSON.stringify(A.parseGeom(rd.result)); A.toast('Контур завантажено — збережіть картку'); } catch (e) { A.toast(e.message, 'err'); } }; rd.readAsText(file); }); }
     var el = root.querySelector('[data-amap]'); if (!el || el.dataset.done || !window.ArmaMap) return; el.dataset.done = 1;
     var a = A.get('assets', +el.dataset.amap); if (!a) return; var g = (a.details || {}).geometry, polys = [], pts = [];
-    if (g && g.coordinates) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { polys.push({rings: pl, color: '#F5C518', id: a.id, label: a.cadastral || a.asset_no}); });
-    if (a.lat && a.lon) pts.push({lat: a.lat, lon: a.lon, color: '#F5C518', id: a.id, label: a.cadastral || a.asset_no, hasPoly: !!g});
-    var m = new window.ArmaMap(el, {base: 'sat', tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, cadastreOn: true}); m.setData(pts, polys);
-    var c = g ? A.geomCenter(g) : [a.lat, a.lon], bb = [90, 180, -90, -180];
-    if (g) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { pl[0].forEach(function (p) { bb = [Math.min(bb[0], p[1]), Math.min(bb[1], p[0]), Math.max(bb[2], p[1]), Math.max(bb[3], p[0])]; }); });
-    if (g) { var pad = Math.max(bb[2] - bb[0], bb[3] - bb[1]) * 0.6 + 0.0015; m.fit(bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad); } else m.fit(c[0] - 0.01, c[1] - 0.015, c[0] + 0.01, c[1] + 0.015);
+    if (g && g.coordinates) (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]).forEach(function (pl) { polys.push({rings: pl, color: '#FF8A00', fill: '33', stroke: '#FFB000', width: 3, id: a.id, label: (a.cadastral || a.asset_no) + ((a.details || {}).area_calc_ha ? ' · ' + A.num(a.details.area_calc_ha, 4) + ' га' : '')}); });
+    if (a.lat && a.lon) pts.push({lat: a.lat, lon: a.lon, color: '#FF8A00', id: a.id, label: a.cadastral || a.asset_no, hasPoly: !!g});
+    var m = new window.ArmaMap(el, {base: 'sat', carto: {key: S.settings.public_map_carto_key, style: S.settings.public_map_carto_style}, tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, cadastreOn: true}); m.setData(pts, polys);
+    // контур ділянки — цілком на весь розмір карти (як на Публічній кадастровій карті); ⤢ — повернутися до ділянки
+    m.fitPoints(true);
   });
   A.ACT['asset-save'] = function (form, d) {
     var isNew = !form.dataset.id, a = isNew ? {details: {}} : A.get('assets', +form.dataset.id), p = {}, det = Object.assign({}, a.details || {}), detCh = false;

@@ -222,8 +222,8 @@
   }
   function mountMap(el, items, fit) {
     if (!el || !window.ArmaMap) return null;
-    var m = new window.ArmaMap(el, {base: 'sat', cadastre: setting('public_map_cadastre', '') || null, onClick: function (p) { var r = String(p.id).split(':'); location.hash = '#/lot/' + r[0] + '/' + r[1]; }});
-    var d = geoData(items); m.setData(d[0], d[1]); if (fit !== false) m.fitPoints();
+    var m = new window.ArmaMap(el, {base: 'sat', carto: {key: setting('public_map_carto_key', ''), style: setting('public_map_carto_style', '')}, cadastre: setting('public_map_cadastre', '') || null, onClick: function (p) { var r = String(p.id).split(':'); location.hash = '#/lot/' + r[0] + '/' + r[1]; }});
+    var d = geoData(items); if (items.length === 1) d[1].forEach(function (pg) { pg.fill = '33'; pg.width = 3; }); m.setData(d[0], d[1]); if (fit !== false) m.fitPoints(items.length === 1);
     return m;
   }
   // карта земельних ділянок: Україна або область; зміна області оновлює лише карту і перелік

@@ -297,7 +297,7 @@
   A.afterRender.push(function (root) {
     var el = root.querySelector('[data-map]'); if (!el || el.dataset.done) return; el.dataset.done = 1;
     var base = (A._landBase || A.T('assets').filter(function (a) { return a.category === 'land' && A.inScope(a); }));
-    var m = new window.ArmaMap(el, {tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, onClick: function (p) { A.go('#/asset/' + p.id); }});
+    var m = new window.ArmaMap(el, {carto: {key: S.settings.public_map_carto_key, style: S.settings.public_map_carto_style}, tiles: S.settings.map_tiles, cadastre: S.settings.map_cadastre, onClick: function (p) { A.go('#/asset/' + p.id); }});
     var leg = document.createElement('div'); leg.className = 'map-legend'; el.appendChild(leg);
     var shown = 60;
     function val(n) { var x = root.querySelector('[data-mf][name="' + n + '"]'); return x ? x.value.trim() : ''; }

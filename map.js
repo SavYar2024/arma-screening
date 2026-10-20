@@ -17,19 +17,29 @@
       labels: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'},
     {id: 'osm', name: 'OSM', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: '© OpenStreetMap contributors'}
   ];
+  // CARTO: стиль + ключ / токен облікового запису або повний шаблон адреси плиток з кабінету CARTO
+  var CARTO_STYLES = {voyager: 'rastertiles/voyager', positron: 'light_all', dark: 'dark_all', 'voyager_nolabels': 'rastertiles/voyager_nolabels'};
+  function cartoUrl(c) {
+    if (!c || (!c.key && !c.style)) return null;
+    var k = String(c.key || '').trim();
+    if (/\{z\}/.test(k)) return k;                                   // повний шаблон з кабінету CARTO
+    var u = 'https://{s}.basemaps.cartocdn.com/' + (CARTO_STYLES[c.style] || CARTO_STYLES.voyager) + '/{z}/{x}/{y}{r}.png';
+    return k ? u + '?api_key=' + encodeURIComponent(k) : u;
+  }
   var CADASTRE = 'https://map.land.gov.ua/geowebcache/service/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=kadastr&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:900913&WIDTH=256&HEIGHT=256&BBOX={bbox}';
   function lon2x(lon, z) { return (lon + 180) / 360 * 256 * Math.pow(2, z); }
   function lat2y(lat, z) { var s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z); }
   function tileBBox(x, y, z) { var n = Math.pow(2, z), R = 6378137 * Math.PI, w = 2 * R / n; return [-R + x * w, R - (y + 1) * w, -R + (x + 1) * w, R - y * w].map(function (v) { return v.toFixed(2); }).join(','); }
   function tileUrl(tpl, z, x, y, sub) {
     var s = sub ? sub[(x + y) % sub.length] : 'a';
-    return tpl.replace('{s}', s).replace('{z}', z).replace('{x}', x).replace('{y}', y).replace('{bbox}', tileBBox(x, y, z)).replace('{-y}', Math.pow(2, z) - 1 - y);
+    return tpl.replace('{s}', s).replace('{r}', (window.devicePixelRatio || 1) > 1.5 ? '@2x' : '').replace('{z}', z).replace('{x}', x).replace('{y}', y).replace('{bbox}', tileBBox(x, y, z)).replace('{-y}', Math.pow(2, z) - 1 - y);
   }
 
   function Map(el, opt) {
     var self = this; opt = opt || {};
     this.el = el; this.points = []; this.polys = []; this.onClick = opt.onClick; this.opt = opt;
-    this.bases = BASES.slice(); if (opt.tiles) this.bases.unshift({id: 'custom', name: 'Свій сервер', url: opt.tiles, attr: ''});
+    this.bases = BASES.slice(); var cu = cartoUrl(opt.carto); if (cu) this.bases[0] = {id: 'scheme', name: 'Схема', url: cu, sub: /\{s\}/.test(cu) ? 'abcd' : null, attr: '© OpenStreetMap contributors © CARTO'};
+    if (opt.tiles) this.bases.unshift({id: 'custom', name: 'Свій сервер', url: opt.tiles, attr: ''});
     this.base = 0; try { var sv = localStorage.getItem('arma-map-base'); this.bases.forEach(function (b, i) { if (b.id === sv) self.base = i; }); } catch (e) { /* без збереження */ }
     if (opt.base) this.bases.forEach(function (b, i) { if (b.id === opt.base) self.base = i; });
     this.cadUrl = opt.cadastre === '-' ? null : (opt.cadastre || CADASTRE); this.cadOn = !!opt.cadastreOn; this.cadFail = 0;
@@ -42,7 +52,7 @@
     this.cv = el.querySelector('canvas'); this.ctx = this.cv.getContext('2d'); this.tip = el.querySelector('.map-tip');
     this.failed = 0; this.dead = false;
     this.fit(44.3, 22, 52.4, 40.3);
-    el.querySelectorAll('[data-z]').forEach(function (b) { b.addEventListener('click', function () { var z = +b.dataset.z; if (z === 0) self.fit(44.3, 22, 52.4, 40.3); else self.zoomAt(self.w / 2, self.h / 2, z); }); });
+    el.querySelectorAll('[data-z]').forEach(function (b) { b.addEventListener('click', function () { var z = +b.dataset.z; if (z === 0) { if (self.home) self.fit(self.home[0], self.home[1], self.home[2], self.home[3]); else self.fit(44.3, 22, 52.4, 40.3); } else self.zoomAt(self.w / 2, self.h / 2, z); }); });
     el.querySelectorAll('[data-base]').forEach(function (b) { b.addEventListener('click', function () { self.setBase(+b.dataset.base, true); }); });
     var cb = el.querySelector('[data-cad]'); if (cb) cb.addEventListener('click', function () { self.cadOn = !self.cadOn; self.cadFail = 0; self.cadEl.innerHTML = ''; self.syncButtons(); self.draw(); });
     var ptrs = {}, last = null, pinch = null, moved = false;
@@ -79,17 +89,27 @@
   };
   Map.prototype.resize = function () { var r = this.el.getBoundingClientRect(); this.w = r.width || 800; this.h = r.height || 500; var dpr = window.devicePixelRatio || 1; this.cv.width = this.w * dpr; this.cv.height = this.h * dpr; this.cv.style.width = this.w + 'px'; this.cv.style.height = this.h + 'px'; this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
   Map.prototype.fit = function (lat0, lon0, lat1, lon1) {
-    this.resize(); var z = 18;
-    while (z > 3 && (lon2x(lon1, z) - lon2x(lon0, z) > this.w * 0.92 || lat2y(lat0, z) - lat2y(lat1, z) > this.h * 0.92)) z--;
+    this.resize();
+    var dx = Math.max(lon2x(lon1, 0) - lon2x(lon0, 0), 1e-9), dy = Math.max(lat2y(lat0, 0) - lat2y(lat1, 0), 1e-9);
+    var z = Math.max(3, Math.min(18.5, Math.log(Math.min(this.w * 0.92 / dx, this.h * 0.92 / dy)) / Math.LN2));
     this.z = z; this.cx = (lon2x(lon0, z) + lon2x(lon1, z)) / 2; this.cy = (lat2y(lat0, z) + lat2y(lat1, z)) / 2; this.draw();
   };
-  Map.prototype.fitPoints = function () {
-    var pts = this.points.concat([].concat.apply([], this.polys.map(function (p) { return p.rings[0].map(function (c) { return {lat: c[1], lon: c[0]}; }); })));
-    if (!pts.length) return this.fit(44.3, 22, 52.4, 40.3);
-    var la = pts.map(function (p) { return p.lat; }), lo = pts.map(function (p) { return p.lon; });
-    var a = Math.min.apply(null, la), b = Math.min.apply(null, lo), c = Math.max.apply(null, la), d = Math.max.apply(null, lo);
-    if (c - a < 0.01) { a -= 0.01; c += 0.01; } if (d - b < 0.01) { b -= 0.01; d += 0.01; }
-    this.fit(a, b, c, d);
+  // показати всі точки і контури цілком: межі з невеликим відступом; для однієї ділянки — масштаб «як на кадастровій карті»
+  Map.prototype.bounds = function () {
+    var a = 90, b = 180, c = -90, d = -180, n = 0;
+    function add(lat, lon) { if (!(lat && lon)) return; n++; if (lat < a) a = lat; if (lat > c) c = lat; if (lon < b) b = lon; if (lon > d) d = lon; }
+    this.polys.forEach(function (p) { p.rings.forEach(function (r) { r.forEach(function (pt) { add(pt[1], pt[0]); }); }); });
+    this.points.forEach(function (p) { if (!p.hasPoly) add(p.lat, p.lon); });
+    if (!n) this.points.forEach(function (p) { add(p.lat, p.lon); });
+    return n || this.points.length ? [a, b, c, d] : null;
+  };
+  Map.prototype.fitPoints = function (keepHome) {
+    var bb = this.bounds(); if (!bb) { this.home = null; return this.fit(44.3, 22, 52.4, 40.3); }
+    var a = bb[0], b = bb[1], c = bb[2], d = bb[3], minS = 0.0012;
+    if (c - a < minS) { a -= (minS - (c - a)) / 2; c = a + minS; } if (d - b < minS * 1.5) { b -= (minS * 1.5 - (d - b)) / 2; d = b + minS * 1.5; }
+    var pa = (c - a) * 0.08, pd = (d - b) * 0.08;
+    if (keepHome) { this.home = [a - pa, b - pd, c + pa, d + pd]; var hb = this.el.querySelector('[data-z="0"]'); if (hb) { hb.textContent = '⤢'; hb.title = 'Показати ділянку цілком'; } }
+    this.fit(a - pa, b - pd, c + pa, d + pd);
   };
   Map.prototype.zoomAt = function (px, py, dz) {
     var nz = Math.max(3, Math.min(19, this.z + dz)); if (nz === this.z) return;
@@ -99,13 +119,15 @@
   Map.prototype.px = function (lat, lon) { return [lon2x(lon, this.z) - this.cx + this.w / 2, lat2y(lat, this.z) - this.cy + this.h / 2]; };
   Map.prototype.setData = function (points, polys) { this.points = points || []; this.polys = polys || []; this.draw(); };
   Map.prototype.layer = function (box, tpl, sub, x0, y0, n, z, onFail, cls) {
-    var self = this, want = {}, tx0 = Math.floor(x0 / 256), ty0 = Math.floor(y0 / 256), tx1 = Math.floor((x0 + this.w) / 256), ty1 = Math.floor((y0 + this.h) / 256);
+    // дробовий масштаб: плитки рівня floor(z), розтягнуті в 2^(z - floor(z)) раза — ділянка заповнює карту без «стрибків» масштабу
+    z = Math.min(19, Math.floor(z + 1e-9)); var k = Math.pow(2, this.z - z), ts = 256 * k; n = Math.pow(2, z);
+    var want = {}, tx0 = Math.floor(x0 / ts), ty0 = Math.floor(y0 / ts), tx1 = Math.floor((x0 + this.w) / ts), ty1 = Math.floor((y0 + this.h) / ts);
     for (var tx = tx0; tx <= tx1; tx++) for (var ty = ty0; ty <= ty1; ty++) {
       if (ty < 0 || ty >= n) continue; var wx = ((tx % n) + n) % n, key = z + '/' + wx + '/' + ty + '/' + tx; want[key] = 1;
       var img = box.querySelector('img[data-k="' + key + '"]');
       if (!img) { img = document.createElement('img'); img.dataset.k = key; img.alt = ''; img.draggable = false; img.referrerPolicy = 'strict-origin-when-cross-origin'; img.decoding = 'async';
         img.onerror = onFail; img.src = tileUrl(tpl, z, wx, ty, sub); box.appendChild(img); }
-      img.style.left = (tx * 256 - x0) + 'px'; img.style.top = (ty * 256 - y0) + 'px';
+      img.style.left = (tx * ts - x0) + 'px'; img.style.top = (ty * ts - y0) + 'px'; img.style.width = img.style.height = (ts + 0.5) + 'px';
     }
     box.querySelectorAll('img').forEach(function (i) { if (!want[i.dataset.k]) i.remove(); });
   };
@@ -131,7 +153,7 @@
     this.polys.forEach(function (pg) {
       c.beginPath(); var bb = [1e9, 1e9, -1e9, -1e9];
       pg.rings.forEach(function (ring) { ring.forEach(function (pt, i) { var p = self.px(pt[1], pt[0]); if (p[0] < bb[0]) bb[0] = p[0]; if (p[1] < bb[1]) bb[1] = p[1]; if (p[0] > bb[2]) bb[2] = p[0]; if (p[1] > bb[3]) bb[3] = p[1]; if (i) c.lineTo(p[0], p[1]); else c.moveTo(p[0], p[1]); }); c.closePath(); });
-      c.fillStyle = (pg.color || '#F5C518') + '66'; c.strokeStyle = pg.color || '#F5C518'; c.lineWidth = z >= 14 ? 2.5 : 1.5; c.fill(); c.stroke();
+      c.fillStyle = (pg.color || '#F5C518') + (pg.fill || '66'); c.strokeStyle = pg.stroke || pg.color || '#F5C518'; c.lineWidth = pg.width || (z >= 14 ? 2.5 : 1.5); c.fill(); c.stroke();
       if (bb[2] - bb[0] < 6 && bb[3] - bb[1] < 6) { c.beginPath(); c.arc((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, 4, 0, 7); c.fillStyle = pg.color || '#F5C518'; c.fill(); }
       self.screenPoly.push([bb, pg]);
     });
